@@ -1,7 +1,7 @@
 // v1design — human/script CLI for v-1.design.
 import "dotenv/config";
 import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, parse as parsePath, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -53,6 +53,14 @@ Safety: generated artifacts default to ~/.v1design/workspace/<design-ref>. The C
 to write inside a Git worktree unless --allow-project-write is passed.`);
 }
 
+function packageVersion() {
+  try {
+    return JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 function parse(argv) {
   const flags = {};
   const args = [];
@@ -60,7 +68,7 @@ function parse(argv) {
     const a = argv[i];
     if (!a.startsWith("--")) { args.push(a); continue; }
     const key = a.slice(2);
-    if (["json", "wait", "full", "no-wait", "allow-project-write"].includes(key)) flags[key] = true;
+    if (["json", "wait", "full", "no-wait", "allow-project-write", "version"].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { args, flags };
@@ -449,6 +457,7 @@ async function main() {
   const { args, flags } = parse(process.argv.slice(2));
   const [cmd, sub, ...rest] = args;
 
+  if (flags.version || cmd === "version" || cmd === "--version" || cmd === "-v") { console.log(packageVersion()); return; }
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") { usage(); return; }
   if (cmd === "login" || cmd === "auth:login") { await login(); return; }
   if (cmd === "connect" || cmd === "setup") { await connect(flags); return; }

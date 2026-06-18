@@ -35,7 +35,9 @@ try {
 
   const binDir = join(tmp, "node_modules", ".bin");
   run(join(binDir, "v1design"), ["help"], { cwd: tmp, stdio: "ignore" });
+  run(join(binDir, "v1design"), ["--version"], { cwd: tmp, stdio: "ignore" });
   run(join(binDir, "v1design-agent"), ["help"], { cwd: tmp, stdio: "ignore" });
+  run(join(binDir, "v1design-agent"), ["--version"], { cwd: tmp, stdio: "ignore" });
 
   const skillsTarget = join(app, "skills");
   run(join(binDir, "v1design"), ["skill", "install", "--target", skillsTarget], { cwd: tmp });

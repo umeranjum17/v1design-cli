@@ -1,6 +1,6 @@
 {
   "name": "@v1design/cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "v-1.design CLI, local agent connector, and bundled Codex/Claude skill.",
   "license": "MIT",
