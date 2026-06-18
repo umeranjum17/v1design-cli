@@ -74,6 +74,10 @@ v1design screens get "<v-1.design-url-or-id>" "<screen name>"
    - Wire expected interactions and state.
    - Install missing UI/icon/font dependencies only when needed.
 6. Run the app and verification commands. Use screenshots or browser checks where the UI matters.
+   - When the user asks to open or show the app, keep the dev/preview server running until the lead agent or user stops it.
+   - If you are a subagent and cannot keep a long-running process alive, say that plainly and return the exact app path, command, host, and port for the lead agent to start.
+   - Do not report a dev URL as live after stopping the server.
+   - Prefer binding local demos to an explicit host/port such as `127.0.0.1:5179` or `0.0.0.0:5179`, then verify the URL with HTTP checks before asking the user to open it.
 7. Fix mismatches before final response.
 
 ## Create Or Extend A Design
@@ -103,4 +107,5 @@ Before finalizing:
 - Confirm the design ref used.
 - Confirm which screens/routes were implemented.
 - Mention tests, typechecks, lint, and visual checks actually run.
+- Mention the live app URL only if a server is still running there.
 - If something could not be verified, say so plainly.
