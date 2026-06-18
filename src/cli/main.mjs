@@ -39,7 +39,7 @@ Usage:
   v1design status
   v1design logout
   v1design create "brief" [--target web|mobile|both] [--wait] [--json]
-  v1design library search "book app" [--json] [--limit 8]
+  v1design library search "book app" [--surface web|mobile] [--json] [--limit 8]
   v1design designs list [--json]
   v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip] [--allow-project-write]
   v1design pull <design-ref> [--out handoff.zip] [--allow-project-write]
@@ -139,9 +139,13 @@ function libraryCardScore(card, groups) {
   return score;
 }
 
-function searchLibraryCards(cards, query) {
+function searchLibraryCards(cards, query, options = {}) {
   const groups = librarySearchTokenGroups(query);
-  const ranked = (cards || [])
+  const surface = normalizeSurface(options.surface);
+  const candidates = surface
+    ? (cards || []).filter((card) => (card.surfaces || []).map((item) => String(item).toLowerCase()).includes(surface))
+    : (cards || []);
+  const ranked = candidates
     .map((card, index) => ({ card, index, score: libraryCardScore(card, groups), terms: librarySearchTerms(card) }))
     .filter((entry) => !groups.length || entry.score > 0)
     .sort((a, b) => (b.score - a.score) || (a.index - b.index));
@@ -149,6 +153,13 @@ function searchLibraryCards(cards, query) {
     ? ranked.filter((entry) => groups.every((group) => group.some((token) => entry.terms.has(token))))
     : ranked;
   return (strict.length ? strict : ranked).map((entry) => entry.card);
+}
+
+function normalizeSurface(input) {
+  const surface = String(input || "").trim().toLowerCase();
+  if (!surface) return "";
+  if (surface === "web" || surface === "mobile") return surface;
+  throw new Error(`Invalid --surface "${input}". Expected web or mobile.`);
 }
 
 async function credentials() {
@@ -335,17 +346,20 @@ async function listDesigns(flags) {
 async function searchLibrary(query, flags) {
   const needle = String(query || "").trim();
   const limit = Math.max(1, Math.min(50, Number(flags.limit || 8) || 8));
+  const surface = normalizeSurface(flags.surface);
   const json = await request("GET", "/api/library");
-  const matches = searchLibraryCards(json.designs || [], needle).slice(0, limit);
+  const matches = searchLibraryCards(json.designs || [], needle, { surface }).slice(0, limit);
   if (flags.json) {
-    printJson({ query: needle, count: matches.length, designs: matches });
+    printJson({ query: needle, surface: surface || null, count: matches.length, designs: matches });
     return;
   }
   if (!matches.length) {
-    console.log(`No Library designs matched "${needle}". Try broader words like web, mobile, books, reading, dashboard, marketplace, finance, or health.`);
+    const scope = surface ? ` ${surface}` : "";
+    console.log(`No Library${scope} designs matched "${needle}". Try broader words like books, reading, dashboard, marketplace, finance, or health.`);
     return;
   }
-  console.log(`Library matches for "${needle || "all"}":`);
+  const scope = surface ? ` ${surface}` : "";
+  console.log(`Library${scope} matches for "${needle || "all"}":`);
   for (const d of matches) {
     const tags = (d.tags || []).slice(0, 8).join(", ");
     const surfaces = (d.surfaces || []).join(", ") || "unknown surface";

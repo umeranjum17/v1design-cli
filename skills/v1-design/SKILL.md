@@ -14,9 +14,11 @@ Use v-1.design as the source of truth for app design handoffs. The goal is not t
 - Do not ask the user for an API key in the normal path. Use `v1design connect`.
 - Accept any v-1.design Studio URL, share URL, Library URL, project id, or Library slug as the design reference.
 - Prefer v1design tool calls when they are available. Use the CLI as the fallback or for artifacts.
+- Stay non-intrusive until the user explicitly asks to use v-1.design in the project. Read-only discovery is okay; creating designs, pulling artifacts, fetching screen files, or editing the app is not.
 - Treat v-1.design TSX, design tokens, `globals.css`, and rendered reference images as design source material; adapt them into the target repo's framework instead of blindly dropping incompatible code.
 - Build the real app surface: routes, shared chrome, state, data mocks/fixtures, interactions, empty/loading/error states, and responsive behavior.
 - For a new web app repo, start with a Next.js App Router TypeScript project with Tailwind unless the user or existing repo requires another stack.
+- For a new mobile app repo, start with Expo + React Native unless the user or existing repo requires another stack.
 - For web apps, do not ship the reference frame as a fixed-width page. A 1440x900 handoff is a design reference, not the app viewport contract. The implementation must own the full browser viewport, avoid exposed body whitespace, and adapt or scale the design for wide, normal, and narrow screens.
 - Visually verify against the v-1.design references before finalizing.
 
@@ -49,29 +51,45 @@ v1design status
 
 ## Choose A Library Reference
 
-Use this when the user gives an app idea but no exact v-1.design link.
+Use this when the user gives an app idea or new-screen idea but no exact v-1.design link.
 
 Prefer tool calls:
 
 ```text
-search_library("book app", limit=8)
+search_library(query="book app", surface="web", limit=8)
 get_design("<chosen-library-url-or-slug>")
 ```
 
 CLI fallback:
 
 ```bash
-v1design library search "book app" --limit 8
+v1design library search "book app" --surface web --limit 8
 v1design designs get "<chosen-library-url-or-slug>"
 ```
 
 Choose the closest reference by product category, surface, tags, and visual fit. Tell the user which design you chose only if it affects the build; otherwise proceed directly into implementation. If no Library result fits, create a new design with `create_design` / `v1design create`.
-For a new web app, include `web` in the search phrase when the user's words are surface-neutral, for example `book web app`.
+Use `surface="web"` for browser/Next.js work and `surface="mobile"` for React Native/Expo work.
+
+If the user only asked to find references, stop after search/inspection and present the best candidates. Do not pull artifacts or edit files until they ask to use one.
+
+## Extend An Existing Project
+
+Use this when the user has an existing app and wants a new screen, flow, or redesign reference from v-1.design.
+
+1. Inspect the target repo first: package manager, framework, routing, styling system, component conventions, and existing test/dev scripts.
+2. Infer the surface from the repo:
+   - Web/browser app: search with `surface="web"` and keep the existing framework. New web repos default to Next.js, but existing React/Vite/Next apps keep their stack.
+   - Mobile app: search with `surface="mobile"` and keep the existing React Native/Expo conventions. New mobile repos default to Expo + React Native.
+3. Search Library references using the product area plus requested screen or flow, such as `billing settings web`, `book onboarding mobile`, or `analytics dashboard web`.
+4. If the user has not yet asked you to integrate or pull, present the chosen reference and why. Stop there.
+5. Once the user asks to use/pull/build/integrate it, fetch the handoff and screen code, then add the smallest clean route/component/state changes that fit the existing app.
+6. Store handoff artifacts under `~/.v1design/workspace/<design-ref>` or a temp folder. Do not dump reference files into the app repo unless they are intentionally used source assets.
 
 ## Build From A Design
 
 1. Inspect the target repo first: package manager, framework, routing, styling system, component conventions, and existing test/dev scripts.
    - If there is no target web repo yet, create a Next.js App Router TypeScript project with Tailwind in the requested new repo and build there.
+   - If there is no target mobile repo yet, create an Expo + React Native TypeScript project in the requested new repo and build there.
 2. Fetch the handoff.
 
 Prefer tool calls:

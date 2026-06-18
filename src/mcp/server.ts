@@ -12,15 +12,16 @@ import { z } from "zod";
 
 const INSTRUCTIONS = `v-1.design is a design engine ("the forge") that generates on-brand app UI — real React/TSX screens + a shadcn/Tailwind design system (globals.css) + a DESIGN.md.
 
-WORKFLOW: if the user provides an app idea but no design link, search_library first, inspect the best matching Library design with get_design, then choose a reference and build from it. For a new web app, include "web" in the search phrase when the user's words are surface-neutral, e.g. "book web app". create_design with a product brief generates a new design on the user's account; the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
+WORKFLOW: stay non-intrusive until the user explicitly asks to use v-1.design in the project. It is okay to connect, check status, and search_library as read-only discovery. Do not create a design, pull artifacts, fetch screen code into files, or edit the target repo unless the user asks to pull/use/build/integrate/create with v-1.design. If the user provides an app idea but no design link and asks to use v-1.design, search_library first, with surface:"web" for browser/Next.js work or surface:"mobile" for React Native/Expo work. Inspect the best matching Library design with get_design, then choose a reference and build from it. create_design with a product brief generates a new design on the user's account; the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
 
 Every result also includes a studio URL (https://…/studio/<id>) — SHARE IT with the user so they can open the design in their browser to see it rendered and tweak it visually.
 
 HOW TO REPRODUCE FAITHFULLY (like Figma's Dev Mode): the engine is the renderer and the source of truth. get_screen_code returns the engine-RENDERED reference image of a screen INLINE — you see exactly how it should look with no rendering capability of your own — plus the screen's TSX. Build to match the image by reading the EXACT values (sizes, spacing, colors as tokens, radii, weights) from the TSX/design-tokens.json — do not eyeball or "improve". There is no required screenshot-diff loop; precise values + the image you're handed are what guarantee the match (if you happen to be able to render your build, comparing it to the image is a nice self-check, not a requirement). In every render, the top status-bar row (time + signal/wifi/battery) and the bottom tab bar are MOCKUP CHROME, not app content: the OS draws the status bar (reserve it with a safe-area inset, never hand-draw it) and the tab bar is shared chrome you build ONCE and reuse.
 
 THEN BUILD THE REAL APP. The screens are a visual reference (web React + Tailwind tokens) — you own routing, state, data and the implementation. Pick the path for the user's target:
-• WEB (Next.js + React + Tailwind / shadcn by default for a new repo): start with a Next.js App Router TypeScript project unless the target repo already uses another stack or the user asks otherwise. Use the screens almost directly — drop app/globals.css in (use the token classes bg-background / text-foreground / bg-primary / rounded-lg, never hard-code colors), load the two Google fonts from DESIGN.md, extract the shared chrome (nav/sidebar/tab bar) into ONE reused component, then one route per screen, replacing placeholder content with real data/state. The reference frame is not a viewport contract: the app must fill the browser, adapt at wide/normal/mobile sizes, and never leave exposed body whitespace from a fixed 1440px shell.
-• REACT NATIVE / EXPO, FLUTTER, SWIFTUI or any non-Tailwind stack: the TSX won't run as-is — treat the design as the SOURCE OF TRUTH for look & feel and re-implement it natively. Read design-tokens.json for palette/type/radius (convert OKLCH→hex/rgb if needed) into your theme (RN StyleSheet/NativeWind, Flutter ThemeData/ColorScheme, SwiftUI Color/Font); read each screen's TSX for layout/hierarchy/spacing/composition/copy and rebuild with native primitives (View/Text/FlatList, Column/Row, VStack/HStack) — match the structure, don't paste Tailwind classes. Keep the same tokens across screens.
+• WEB (Next.js + React + Tailwind / shadcn by default for a new repo): start with a Next.js App Router TypeScript project unless the target repo already uses another stack or the user asks otherwise. In an existing web repo, keep its framework/router and integrate only the requested screens/components. Use the screens almost directly — drop app/globals.css in (use the token classes bg-background / text-foreground / bg-primary / rounded-lg, never hard-code colors), load the two Google fonts from DESIGN.md, extract the shared chrome (nav/sidebar/tab bar) into ONE reused component, then one route per screen, replacing placeholder content with real data/state. The reference frame is not a viewport contract: the app must fill the browser, adapt at wide/normal/mobile sizes, and never leave exposed body whitespace from a fixed 1440px shell.
+• MOBILE (React Native / Expo by default for a new repo): start with Expo + React Native unless the target repo already uses another mobile stack or the user asks otherwise. The TSX handoff won't run as-is in native — treat the design as the SOURCE OF TRUTH for look & feel and re-implement it with native primitives (View/Text/FlatList/ScrollView/Pressable) or the repo's NativeWind/components. Read design-tokens.json for palette/type/radius and keep the same tokens across screens.
+• OTHER NATIVE STACKS (Flutter, SwiftUI, etc.): the TSX won't run as-is — rebuild with native primitives, matching hierarchy, spacing, tokens, and copy.
 
 IMPORTANT: never poll. create_design / add_screen / wait_for_design are push-based — they stream progress and return the finished design in one call. get_design is a single read, not a loop.`;
 
@@ -214,9 +215,20 @@ function libraryCardScore(card: any, groups: string[][]): number {
   return score;
 }
 
-function searchLibraryCards(cards: any[], query: string): any[] {
+function normalizeSurface(input?: string): "" | "web" | "mobile" {
+  const surface = String(input ?? "").trim().toLowerCase();
+  if (!surface) return "";
+  if (surface === "web" || surface === "mobile") return surface;
+  throw new Error(`Invalid surface "${input}". Expected web or mobile.`);
+}
+
+function searchLibraryCards(cards: any[], query: string, options: { surface?: string } = {}): any[] {
   const groups = librarySearchTokenGroups(query);
-  const ranked = (cards ?? [])
+  const surface = normalizeSurface(options.surface);
+  const candidates = surface
+    ? (cards ?? []).filter((card) => (card.surfaces ?? []).map((item: string) => String(item).toLowerCase()).includes(surface))
+    : (cards ?? []);
+  const ranked = candidates
     .map((card, index) => ({ card, index, score: libraryCardScore(card, groups), terms: librarySearchTerms(card) }))
     .filter((entry) => !groups.length || entry.score > 0)
     .sort((a, b) => (b.score - a.score) || (a.index - b.index));
@@ -232,19 +244,21 @@ export function buildServer(client: EngineHttpClient): McpServer {
 
   server.registerTool("search_library", {
     description: "Search the v-1.design Library catalog by app idea, tags, category, or surface. Use this before choosing a reference when the user asks for a new app but does not provide a design link.",
-    inputSchema: { query: z.string().default(""), limit: z.number().int().min(1).max(50).optional() },
-  }, async ({ query, limit }) => {
+    inputSchema: { query: z.string().default(""), surface: z.enum(["web", "mobile"]).optional(), limit: z.number().int().min(1).max(50).optional() },
+  }, async ({ query, surface, limit }) => {
     const j = await client.json("GET", "/api/library");
-    const matches = searchLibraryCards(j.designs ?? [], query).slice(0, limit ?? 8);
+    const matches = searchLibraryCards(j.designs ?? [], query, { surface }).slice(0, limit ?? 8);
     if (!matches.length) {
-      return text(`No Library designs matched "${query}". Try broader words like web, mobile, books, reading, dashboard, marketplace, finance, or health.`);
+      const scope = surface ? ` ${surface}` : "";
+      return text(`No Library${scope} designs matched "${query}". Try broader words like books, reading, dashboard, marketplace, finance, or health.`);
     }
     const rows = matches.map((d: any) => {
       const tags = (d.tags ?? []).slice(0, 8).join(", ");
       const surfaces = (d.surfaces ?? []).join(", ") || "unknown surface";
       return `- ${d.appName} (${d.slug})\n  ${d.summary}\n  ${d.category ?? "uncategorized"} · ${surfaces}${tags ? ` · ${tags}` : ""}\n  ${WEB_URL}/library/${encodeURIComponent(d.slug)}`;
     });
-    return text(`Library matches for "${query || "all"}":\n${rows.join("\n")}`);
+    const scope = surface ? ` ${surface}` : "";
+    return text(`Library${scope} matches for "${query || "all"}":\n${rows.join("\n")}`);
   });
 
   server.registerTool("list_designs", { description: "List the designs on your v-1.design account." }, async () => {
