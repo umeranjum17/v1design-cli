@@ -18,6 +18,7 @@ Use $v1-design to build this app from https://v-1.design/library/<slug>
 You can also use the real CLI directly:
 
 ```bash
+v1design library suggest "book app" --surface web --limit 5 --open
 v1design library search "book app" --surface web
 v1design library search "onboarding app" --surface mobile
 v1design pull "https://v-1.design/library/<slug>"
@@ -25,9 +26,11 @@ v1design designs get "https://v-1.design/studio/<id>"
 v1design screens get "https://v-1.design/studio/<id>" Home
 ```
 
+For a brand-new project, start with `library suggest`: it shows the top five matching Library references, opens their pages when `--open` is passed, and gives the agent a clear pause point to ask which direction resonates before pulling artifacts or writing code.
+
 Generated references default to `~/.v1design/workspace/<design-ref>`, for example `~/.v1design/workspace/aetra-a3e7c2b1/handoff.zip`. The CLI refuses to write inside a Git worktree unless `--allow-project-write` is passed, which keeps private repos read-only unless you deliberately choose one as the target app.
 
-Library search is read-only discovery. Pulling artifacts, creating a new design, or editing an app should happen only after you explicitly ask the agent to use a chosen v-1.design reference in the project.
+Library search and suggestions are read-only discovery. Pulling artifacts, creating a new design, or editing an app should happen only after you explicitly ask the agent to use a chosen v-1.design reference in the project.
 
 ## What This Package Contains
 

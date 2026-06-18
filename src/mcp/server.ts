@@ -12,7 +12,7 @@ import { z } from "zod";
 
 const INSTRUCTIONS = `v-1.design is a design engine ("the forge") that generates on-brand app UI — real React/TSX screens + a shadcn/Tailwind design system (globals.css) + a DESIGN.md.
 
-WORKFLOW: stay non-intrusive until the user explicitly asks to use v-1.design in the project. It is okay to connect, check status, and search_library as read-only discovery. Do not create a design, pull artifacts, fetch screen code into files, or edit the target repo unless the user asks to pull/use/build/integrate/create with v-1.design. If the user provides an app idea but no design link and asks to use v-1.design, search_library first, with surface:"web" for browser/Next.js work or surface:"mobile" for React Native/Expo work. Inspect the best matching Library design with get_design, then choose a reference and build from it. create_design with a product brief generates a new design on the user's account; the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
+WORKFLOW: stay non-intrusive until the user explicitly asks to use v-1.design in the project. It is okay to connect, check status, and search_library as read-only discovery. Do not create a design, pull artifacts, fetch screen code into files, or edit the target repo unless the user asks to pull/use/build/integrate/create with v-1.design. If the user provides an app idea but no design link and asks to use v-1.design in a brand-new project, search_library first with limit:5 and the right surface, show the five Library options/links to the user, ask which one resonates, and wait for their choice before pulling artifacts or building. Use surface:"web" for browser/Next.js work and surface:"mobile" for React Native/Expo work. If the user explicitly delegates the choice to you, compare the candidates and state which reference you chose before building. create_design with a product brief generates a new design on the user's account; the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
 
 Every result also includes a studio URL (https://…/studio/<id>) — SHARE IT with the user so they can open the design in their browser to see it rendered and tweak it visually.
 
@@ -185,6 +185,28 @@ function librarySearchTerms(card: any): Set<string> {
   return new Set(librarySearchText(card).split(/[^a-z0-9]+/).filter(Boolean));
 }
 
+function verifiedStack(card: any): string {
+  return String(card?.verified?.stack ?? "").toLowerCase();
+}
+
+function stackMatchesSurface(card: any, surface: string): boolean {
+  if (!surface) return true;
+  const stack = verifiedStack(card);
+  if (!stack) return true;
+  const nativeStack = /\b(expo|react native|nativewind)\b/.test(stack);
+  const webStack = /\b(next|vite|remix|astro|react \+ typescript|shadcn|tailwind)\b/.test(stack);
+  if (surface === "web") return !nativeStack || webStack;
+  if (surface === "mobile") return nativeStack || !webStack;
+  return true;
+}
+
+function surfaceMatches(card: any, surface: string): boolean {
+  if (!surface) return true;
+  const surfaces = (card.surfaces ?? []).map((item: string) => String(item).toLowerCase());
+  if (!surfaces.includes(surface)) return false;
+  return stackMatchesSurface(card, surface);
+}
+
 function libraryCardScore(card: any, groups: string[][]): number {
   const tagSet = new Set((card.tags ?? []).map((tag: string) => String(tag).toLowerCase()));
   const surfaceSet = new Set((card.surfaces ?? []).map((surface: string) => String(surface).toLowerCase()));
@@ -222,11 +244,16 @@ function normalizeSurface(input?: string): "" | "web" | "mobile" {
   throw new Error(`Invalid surface "${input}". Expected web or mobile.`);
 }
 
-function searchLibraryCards(cards: any[], query: string, options: { surface?: string } = {}): any[] {
+function searchLibraryCards(cards: any[], query: string, options: { surface?: string; looseSurface?: boolean } = {}): any[] {
   const groups = librarySearchTokenGroups(query);
   const surface = normalizeSurface(options.surface);
+  const looseSurface = Boolean(options.looseSurface);
   const candidates = surface
-    ? (cards ?? []).filter((card) => (card.surfaces ?? []).map((item: string) => String(item).toLowerCase()).includes(surface))
+    ? (cards ?? []).filter((card) => {
+      const surfaces = (card.surfaces ?? []).map((item: string) => String(item).toLowerCase());
+      if (!surfaces.includes(surface)) return false;
+      return looseSurface || stackMatchesSurface(card, surface);
+    })
     : (cards ?? []);
   const ranked = candidates
     .map((card, index) => ({ card, index, score: libraryCardScore(card, groups), terms: librarySearchTerms(card) }))
@@ -243,11 +270,22 @@ export function buildServer(client: EngineHttpClient): McpServer {
   const server = new McpServer({ name: "v-1.design", version: "1.0.0" }, { instructions: INSTRUCTIONS });
 
   server.registerTool("search_library", {
-    description: "Search the v-1.design Library catalog by app idea, tags, category, or surface. Use this before choosing a reference when the user asks for a new app but does not provide a design link.",
+    description: "Search the v-1.design Library catalog by app idea, tags, category, or surface. For a brand-new project, call this with limit:5, present the five candidate links, and ask the user which one resonates before pulling or editing unless they explicitly delegated the choice.",
     inputSchema: { query: z.string().default(""), surface: z.enum(["web", "mobile"]).optional(), limit: z.number().int().min(1).max(50).optional() },
   }, async ({ query, surface, limit }) => {
     const j = await client.json("GET", "/api/library");
-    const matches = searchLibraryCards(j.designs ?? [], query, { surface }).slice(0, limit ?? 8);
+    const max = limit ?? 8;
+    const matches = searchLibraryCards(j.designs ?? [], query, { surface }).slice(0, max);
+    if (surface && matches.length < max) {
+      const seen = new Set(matches.map((d: any) => d.slug));
+      const loose = searchLibraryCards(j.designs ?? [], query, { surface, looseSurface: true });
+      for (const d of loose) {
+        if (seen.has(d.slug)) continue;
+        matches.push(d);
+        seen.add(d.slug);
+        if (matches.length >= max) break;
+      }
+    }
     if (!matches.length) {
       const scope = surface ? ` ${surface}` : "";
       return text(`No Library${scope} designs matched "${query}". Try broader words like books, reading, dashboard, marketplace, finance, or health.`);
@@ -255,7 +293,8 @@ export function buildServer(client: EngineHttpClient): McpServer {
     const rows = matches.map((d: any) => {
       const tags = (d.tags ?? []).slice(0, 8).join(", ");
       const surfaces = (d.surfaces ?? []).join(", ") || "unknown surface";
-      return `- ${d.appName} (${d.slug})\n  ${d.summary}\n  ${d.category ?? "uncategorized"} · ${surfaces}${tags ? ` · ${tags}` : ""}\n  ${WEB_URL}/library/${encodeURIComponent(d.slug)}`;
+      const strictNote = surface && !stackMatchesSurface(d, surface) ? " · surface-tagged visual reference" : "";
+      return `- ${d.appName} (${d.slug})\n  ${d.summary}\n  ${d.category ?? "uncategorized"} · ${surfaces}${strictNote}${tags ? ` · ${tags}` : ""}\n  ${WEB_URL}/library/${encodeURIComponent(d.slug)}`;
     });
     const scope = surface ? ` ${surface}` : "";
     return text(`Library${scope} matches for "${query || "all"}":\n${rows.join("\n")}`);

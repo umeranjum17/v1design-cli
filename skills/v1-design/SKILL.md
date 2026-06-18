@@ -53,17 +53,19 @@ v1design status
 
 Use this when the user gives an app idea or new-screen idea but no exact v-1.design link.
 
+For a brand-new project, treat reference choice as a product direction step. Search the top five relevant Library candidates, open or share the Library links, and ask the user which one resonates before pulling artifacts or writing app code. Only choose for them when they explicitly delegate that decision.
+
 Prefer tool calls:
 
 ```text
-search_library(query="book app", surface="web", limit=8)
+search_library(query="book app", surface="web", limit=5)
 get_design("<chosen-library-url-or-slug>")
 ```
 
 CLI fallback:
 
 ```bash
-v1design library search "book app" --surface web --limit 8
+v1design library suggest "book app" --surface web --limit 5 --open
 v1design designs get "<chosen-library-url-or-slug>"
 ```
 

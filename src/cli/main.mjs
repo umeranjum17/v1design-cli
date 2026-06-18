@@ -40,6 +40,7 @@ Usage:
   v1design logout
   v1design create "brief" [--target web|mobile|both] [--wait] [--json]
   v1design library search "book app" [--surface web|mobile] [--json] [--limit 8]
+  v1design library suggest "book app" [--surface web|mobile] [--limit 5] [--open] [--json]
   v1design designs list [--json]
   v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip] [--allow-project-write]
   v1design pull <design-ref> [--out handoff.zip] [--allow-project-write]
@@ -51,6 +52,24 @@ Run "v1design connect" once; no secret or config copying is needed after that.
 
 Safety: generated artifacts default to ~/.v1design/workspace/<design-ref>. The CLI refuses
 to write inside a Git worktree unless --allow-project-write is passed.`);
+}
+
+function libraryUsage() {
+  console.log(`v1design library
+
+Usage:
+  v1design library search "idea or tags" [--surface web|mobile] [--json] [--limit 8]
+  v1design library suggest "idea or tags" [--surface web|mobile] [--limit 5] [--open] [--json]
+
+Use search for scriptable discovery. Use suggest at the start of a brand-new project:
+it prints the top candidates, their tags and Library URLs, and prompts the human to
+pick what resonates before any artifacts are pulled or code is changed.
+
+Options:
+  --surface web|mobile   Match the target app surface and implementation stack.
+  --limit N              Number of candidates to show.
+  --open                 Open each candidate Library page in your browser.
+  --json                 Print JSON for automation.`);
 }
 
 function packageVersion() {
@@ -68,7 +87,7 @@ function parse(argv) {
     const a = argv[i];
     if (!a.startsWith("--")) { args.push(a); continue; }
     const key = a.slice(2);
-    if (["json", "wait", "full", "no-wait", "allow-project-write", "version"].includes(key)) flags[key] = true;
+    if (["json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "loose-surface"].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { args, flags };
@@ -103,6 +122,28 @@ function librarySearchText(card) {
     ...(card.tags || []),
     ...(card.surfaces || []),
   ].join(" ").toLowerCase();
+}
+
+function verifiedStack(card) {
+  return String(card?.verified?.stack || "").toLowerCase();
+}
+
+function stackMatchesSurface(card, surface, loose = false) {
+  if (!surface || loose) return true;
+  const stack = verifiedStack(card);
+  if (!stack) return true;
+  const nativeStack = /\b(expo|react native|nativewind)\b/.test(stack);
+  const webStack = /\b(next|vite|remix|astro|react \+ typescript|shadcn|tailwind)\b/.test(stack);
+  if (surface === "web") return !nativeStack || webStack;
+  if (surface === "mobile") return nativeStack || !webStack;
+  return true;
+}
+
+function surfaceMatches(card, surface, loose = false) {
+  if (!surface) return true;
+  const surfaces = (card.surfaces || []).map((item) => String(item).toLowerCase());
+  if (!surfaces.includes(surface)) return false;
+  return stackMatchesSurface(card, surface, loose);
 }
 
 function librarySearchTerms(card) {
@@ -142,8 +183,9 @@ function libraryCardScore(card, groups) {
 function searchLibraryCards(cards, query, options = {}) {
   const groups = librarySearchTokenGroups(query);
   const surface = normalizeSurface(options.surface);
+  const looseSurface = Boolean(options.looseSurface);
   const candidates = surface
-    ? (cards || []).filter((card) => (card.surfaces || []).map((item) => String(item).toLowerCase()).includes(surface))
+    ? (cards || []).filter((card) => surfaceMatches(card, surface, looseSurface))
     : (cards || []);
   const ranked = candidates
     .map((card, index) => ({ card, index, score: libraryCardScore(card, groups), terms: librarySearchTerms(card) }))
@@ -348,7 +390,7 @@ async function searchLibrary(query, flags) {
   const limit = Math.max(1, Math.min(50, Number(flags.limit || 8) || 8));
   const surface = normalizeSurface(flags.surface);
   const json = await request("GET", "/api/library");
-  const matches = searchLibraryCards(json.designs || [], needle, { surface }).slice(0, limit);
+  const matches = searchLibraryCards(json.designs || [], needle, { surface, looseSurface: flags["loose-surface"] }).slice(0, limit);
   if (flags.json) {
     printJson({ query: needle, surface: surface || null, count: matches.length, designs: matches });
     return;
@@ -368,6 +410,90 @@ async function searchLibrary(query, flags) {
     console.log(`  ${d.category || "uncategorized"} · ${surfaces}${tags ? ` · ${tags}` : ""}`);
     console.log(`  ${WEB_URL}/library/${encodeURIComponent(d.slug)}`);
   }
+}
+
+function libraryUrl(slug) {
+  return `${WEB_URL}/library/${encodeURIComponent(slug)}`;
+}
+
+async function openUrl(url) {
+  const command = process.platform === "darwin"
+    ? "open"
+    : process.platform === "win32"
+      ? "cmd"
+      : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  await new Promise((resolve) => {
+    const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0));
+    child.unref?.();
+  });
+}
+
+async function suggestLibrary(query, flags) {
+  const needle = String(query || "").trim();
+  const limit = Math.max(1, Math.min(10, Number(flags.limit || 5) || 5));
+  const surface = normalizeSurface(flags.surface);
+  const json = await request("GET", "/api/library");
+  const strictMatches = searchLibraryCards(json.designs || [], needle, { surface, looseSurface: flags["loose-surface"] });
+  const matches = strictMatches.slice(0, limit);
+  if (surface && !flags["loose-surface"] && matches.length < limit) {
+    const seen = new Set(matches.map((d) => d.slug));
+    const looseMatches = searchLibraryCards(json.designs || [], needle, { surface, looseSurface: true });
+    for (const d of looseMatches) {
+      if (seen.has(d.slug)) continue;
+      matches.push(d);
+      seen.add(d.slug);
+      if (matches.length >= limit) break;
+    }
+  }
+  const candidates = matches.map((d, index) => ({
+    rank: index + 1,
+    appName: d.appName,
+    slug: d.slug,
+    summary: d.summary,
+    category: d.category || "uncategorized",
+    surfaces: d.surfaces || [],
+    strictSurface: surface ? stackMatchesSurface(d, surface) : true,
+    tags: (d.tags || []).slice(0, 10),
+    url: libraryUrl(d.slug),
+  }));
+
+  if (flags.open) {
+    await Promise.all(candidates.map((candidate) => openUrl(candidate.url)));
+  }
+
+  if (flags.json) {
+    printJson({
+      query: needle,
+      surface: surface || null,
+      count: candidates.length,
+      opened: Boolean(flags.open),
+      candidates,
+      nextStep: "Ask the user which option resonates before pulling artifacts or editing the repo.",
+    });
+    return;
+  }
+
+  if (!candidates.length) {
+    const scope = surface ? ` ${surface}` : "";
+    console.log(`No Library${scope} candidates matched "${needle}". Try broader words like books, reading, dashboard, marketplace, finance, or health.`);
+    return;
+  }
+
+  const scope = surface ? ` ${surface}` : "";
+  console.log(`Top ${candidates.length} Library${scope} candidates for "${needle || "all"}":`);
+  for (const d of candidates) {
+    const tags = d.tags.join(", ");
+    console.log(`${d.rank}. ${d.appName} · ${d.slug}`);
+    console.log(`   ${d.summary}`);
+    const strictNote = d.strictSurface ? "" : " · surface-tagged visual reference";
+    console.log(`   ${d.category} · ${d.surfaces.join(", ") || "unknown surface"}${strictNote}${tags ? ` · ${tags}` : ""}`);
+    console.log(`   ${d.url}`);
+  }
+  if (flags.open) console.log(`\nOpened ${candidates.length} Library page${candidates.length === 1 ? "" : "s"} in your browser.`);
+  console.log("\nAsk the user: which one resonates with the product you want? Then pull/build only after they choose.");
 }
 
 async function getDesign(refInput, flags) {
@@ -480,7 +606,9 @@ async function main() {
   if (cmd === "create") { await createDesign([sub, ...rest].filter(Boolean).join(" "), flags); return; }
   if (cmd === "pull") { await pull(sub, flags); return; }
   if (cmd === "skill" && sub === "install") { await installSkill(flags); return; }
+  if (cmd === "library" && (!sub || sub === "help" || sub === "--help" || sub === "-h")) { libraryUsage(); return; }
   if (cmd === "library" && sub === "search") { await searchLibrary(rest.join(" "), flags); return; }
+  if (cmd === "library" && sub === "suggest") { await suggestLibrary(rest.join(" "), flags); return; }
   if (cmd === "designs" && sub === "list") { await listDesigns(flags); return; }
   if (cmd === "designs" && sub === "get") { await getDesign(rest[0], flags); return; }
   if (cmd === "screens" && sub === "get") { await getScreen(rest[0], rest.slice(1).join(" "), flags); return; }
