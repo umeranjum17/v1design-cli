@@ -1,0 +1,255 @@
+/**
+ * v-1.design MCP server — the tools an agent (Claude Code / Codex / Cursor) calls. The SAME server is
+ * exposed over TWO ingresses (see bin/agent.mjs for stdio, http/server.ts for the `/mcp` HTTP route);
+ * both wrap one engine. Tools talk to the engine over its HTTP API via {@link EngineHttpClient} — for
+ * stdio that's the configured remote engine + env key; for the HTTP ingress it's the engine's own
+ * loopback + the caller's key. create / add / wait consume the engine SSE stream (reconnecting with
+ * Last-Event-ID) and forward each event as an MCP progress notification — push, no polling.
+ */
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+
+const INSTRUCTIONS = `v-1.design is a design engine ("the forge") that generates on-brand app UI — real React/TSX screens + a shadcn/Tailwind design system (globals.css) + a DESIGN.md.
+
+WORKFLOW: create_design with a product brief → it generates on the user's account → the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists them.
+
+Every result also includes a studio URL (https://…/studio/<id>) — SHARE IT with the user so they can open the design in their browser to see it rendered and tweak it visually.
+
+HOW TO REPRODUCE FAITHFULLY (like Figma's Dev Mode): the engine is the renderer and the source of truth. get_screen_code returns the engine-RENDERED reference image of a screen INLINE — you see exactly how it should look with no rendering capability of your own — plus the screen's TSX. Build to match the image by reading the EXACT values (sizes, spacing, colors as tokens, radii, weights) from the TSX/design-tokens.json — do not eyeball or "improve". There is no required screenshot-diff loop; precise values + the image you're handed are what guarantee the match (if you happen to be able to render your build, comparing it to the image is a nice self-check, not a requirement). In every render, the top status-bar row (time + signal/wifi/battery) and the bottom tab bar are MOCKUP CHROME, not app content: the OS draws the status bar (reserve it with a safe-area inset, never hand-draw it) and the tab bar is shared chrome you build ONCE and reuse.
+
+THEN BUILD THE REAL APP. The screens are a visual reference (web React + Tailwind tokens) — you own routing, state, data and the implementation. Pick the path for the user's target:
+• WEB (React + Tailwind / shadcn): use the screens almost directly — drop app/globals.css in (use the token classes bg-background / text-foreground / bg-primary / rounded-lg, never hard-code colors), load the two Google fonts from DESIGN.md, extract the shared chrome (nav/sidebar/tab bar) into ONE reused component, then one route per screen, replacing placeholder content with real data/state.
+• REACT NATIVE / EXPO, FLUTTER, SWIFTUI or any non-Tailwind stack: the TSX won't run as-is — treat the design as the SOURCE OF TRUTH for look & feel and re-implement it natively. Read design-tokens.json for palette/type/radius (convert OKLCH→hex/rgb if needed) into your theme (RN StyleSheet/NativeWind, Flutter ThemeData/ColorScheme, SwiftUI Color/Font); read each screen's TSX for layout/hierarchy/spacing/composition/copy and rebuild with native primitives (View/Text/FlatList, Column/Row, VStack/HStack) — match the structure, don't paste Tailwind classes. Keep the same tokens across screens.
+
+IMPORTANT: never poll. create_design / add_screen / wait_for_design are push-based — they stream progress and return the finished design in one call. get_design is a single read, not a loop.`;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+type ProgressEntry = { type: string; [k: string]: any };
+
+/** Talks to the engine's HTTP API. Same class for both ingresses — only baseUrl + key differ. */
+export class EngineHttpClient {
+  constructor(private baseUrl: string, private apiKey: string) {
+    this.baseUrl = baseUrl.replace(/\/$/, "");
+  }
+  private headers(extra?: Record<string, string>): Record<string, string> {
+    const h: Record<string, string> = { ...extra };
+    if (this.apiKey) h.authorization = `Bearer ${this.apiKey}`;
+    return h;
+  }
+  async json(method: string, path: string, body?: unknown): Promise<any> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: this.headers(body ? { "content-type": "application/json" } : undefined),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const txt = await res.text();
+    let j: any = null;
+    try { j = txt ? JSON.parse(txt) : null; } catch {}
+    if (!res.ok) throw new Error(`${method} ${path} → ${res.status}: ${j?.error ? JSON.stringify(j) : txt || ""}`);
+    return j;
+  }
+  async text(path: string): Promise<string> {
+    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() });
+    const txt = await res.text();
+    if (!res.ok) throw new Error(`GET ${path} → ${res.status}: ${txt.slice(0, 200)}`);
+    return txt;
+  }
+  /** Fetch a binary asset (e.g. a rendered-screen PNG) as base64 + mime, so it can be returned as an
+   *  inline MCP image block. Accepts an absolute URL (the public /shot link) or an engine path. Returns
+   *  null on any failure so callers degrade gracefully to text-only. */
+  async bytes(urlOrPath: string): Promise<{ base64: string; mimeType: string } | null> {
+    try {
+      const url = /^https?:\/\//.test(urlOrPath) ? urlOrPath : `${this.baseUrl}${urlOrPath}`;
+      const res = await fetch(url, { headers: this.headers() });
+      if (!res.ok) return null;
+      const mimeType = res.headers.get("content-type") || "image/png";
+      const base64 = Buffer.from(await res.arrayBuffer()).toString("base64");
+      return base64 ? { base64, mimeType } : null;
+    } catch { return null; }
+  }
+  /** Tail the engine SSE to completion, reconnecting with Last-Event-ID on drop. */
+  async streamUntilDone(projectId: string, onEntry: (e: ProgressEntry) => void | Promise<void>, maxMs = 600_000): Promise<boolean> {
+    const deadline = Date.now() + maxMs;
+    let lastId = "";
+    while (Date.now() < deadline) {
+      let res: Response;
+      try { res = await fetch(`${this.baseUrl}/designs/${projectId}/events`, { headers: this.headers(lastId ? { "last-event-id": lastId } : undefined) }); }
+      catch { await sleep(1000); continue; }
+      if (!res.ok || !res.body) return false;
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "", serverClosed = false;
+      while (Date.now() < deadline) {
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try { chunk = await reader.read(); } catch { serverClosed = true; break; }
+        if (chunk.done) { serverClosed = true; break; }
+        buf += dec.decode(chunk.value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          const id = (block.match(/^id: (.*)$/m) || [])[1];
+          const ev = (block.match(/^event: (.*)$/m) || [])[1];
+          const data = (block.match(/^data: (.*)$/m) || [])[1];
+          if (id) lastId = id;
+          if (ev === "done") { try { await reader.cancel(); } catch {} return true; }
+          if (ev === "fallback") { try { await reader.cancel(); } catch {} return false; }
+          if ((ev === "progress" || ev === "screen") && data) { try { await onEntry(JSON.parse(data)); } catch {} }
+        }
+      }
+      try { await reader.cancel(); } catch {}
+      if (!serverClosed) break;
+    }
+    return false;
+  }
+}
+
+type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+type ToolResult = { content: Content[]; isError?: boolean };
+const text = (s: string): ToolResult => ({ content: [{ type: "text", text: s }] });
+const errText = (s: string): ToolResult => ({ content: [{ type: "text", text: s }], isError: true });
+
+type Extra = { _meta?: { progressToken?: string | number }; sendNotification: (n: ServerNotification) => Promise<void> };
+function reporter(extra: Extra) {
+  const token = extra._meta?.progressToken;
+  let n = 0;
+  return async (e: ProgressEntry) => {
+    if (token === undefined) return;
+    n++;
+    const msg = e.type === "screen" ? `screen ${e.screen?.status}: ${e.screen?.name}` : (e.event?.message ?? "");
+    try { await extra.sendNotification({ method: "notifications/progress", params: { progressToken: token, progress: n, message: String(msg).slice(0, 120) } }); } catch {}
+  };
+}
+const footer = (s: any) => (s ? `\n\n---\n_status: ${s.ready} ready · ${s.pending} pending · ${s.failed} failed · ${s.locked} locked_` : "");
+
+// Where the human can open a design in the browser (the web studio). The engine knows the web app's
+// URL via WEB_APP_URL; default to the production host.
+const WEB_URL = (process.env.WEB_APP_URL || "https://v-1.design").replace(/\/+$/, "");
+const studioUrl = (id: string) => `${WEB_URL}/studio/${id}`;
+function designRef(input: string): string {
+  const raw = String(input || "").trim();
+  if (!raw) return raw;
+  try {
+    const url = new URL(raw);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const idx = parts.findIndex((p) => ["studio", "share", "library"].includes(p));
+    if (idx >= 0 && parts[idx + 1]) return decodeURIComponent(parts[idx + 1]);
+  } catch {
+    // not a URL; treat as an id/slug
+  }
+  return raw.replace(/^\/+|\/+$/g, "");
+}
+const openLine = (id: string) => `\n\n→ Open in v-1.design: ${studioUrl(id)} or ${WEB_URL}/library/${encodeURIComponent(id)}`;
+
+/** Build the MCP server. `client` is how its tools reach the engine (stdio → remote; HTTP → loopback). */
+export function buildServer(client: EngineHttpClient): McpServer {
+  const server = new McpServer({ name: "v-1.design", version: "1.0.0" }, { instructions: INSTRUCTIONS });
+
+  server.registerTool("list_designs", { description: "List the designs on your v-1.design account." }, async () => {
+    const j = await client.json("GET", "/designs");
+    const rows = (j.designs ?? []).map((d: any) => {
+      // Report the count the handoff can actually deliver (ready screens), and flag locked/pending so
+      // "5 screens" never overstates a 3-screen handoff (a recurring dogfood confusion).
+      const st = d.status ?? {};
+      const ready = typeof st.ready === "number" ? st.ready : d.screens;
+      const extra = [
+        st.locked ? `${st.locked} locked` : "",
+        st.pending ? `${st.pending} generating` : "",
+        st.failed ? `${st.failed} failed` : "",
+      ].filter(Boolean).join(", ");
+      const count = `${ready} screen${ready === 1 ? "" : "s"}${extra ? ` (+${extra})` : ""}`;
+      return `- "${d.appName}" (${count}) · ${String(d.brief).slice(0, 60)}\n    ${studioUrl(d.id)}  ·  id: ${d.id}`;
+    });
+    return text(rows.length ? `Your designs:\n${rows.join("\n")}` : "No designs yet. Use create_design.");
+  });
+
+  server.registerTool("get_design", {
+    description: "Fetch one finished design as a self-contained bundle (tokens + globals.css + every screen's TSX). Accepts a studio/share/library URL, project id, or library slug. A single read — not a loop.",
+    inputSchema: { projectId: z.string().describe("Studio/share/library URL, project id, or library slug."), format: z.enum(["markdown", "json"]).optional() },
+  }, async ({ projectId, format }) => {
+    const ref = designRef(projectId);
+    const fmt = format === "json" ? "json" : "md";
+    // slim=1: the bundle omits inlined per-screen TSX (it blows the MCP token cap even on 3 screens) —
+    // the agent pulls each screen's source + rendered image via get_screen_code, as the guide says.
+    const body = await client.text(`/designs/${encodeURIComponent(ref)}?format=${fmt}&slim=1`);
+    // Keep JSON pure (parseable); append the openable studio URL only to the markdown bundle.
+    return text(fmt === "json" ? body : body + openLine(ref));
+  });
+
+  server.registerTool("get_screen_code", {
+    description: "Get one screen of a design by name: accepts a studio/share/library URL, project id, or library slug. Returns the engine-rendered REFERENCE IMAGE of the screen (inline — you see it directly, no rendering needed on your side) plus its TSX source. Build your screen to match the image, reading exact values (sizes, spacing, colors, radii) from the code/tokens. Like Figma's get_screenshot + get_code.",
+    inputSchema: { projectId: z.string().describe("Studio/share/library URL, project id, or library slug."), screenName: z.string() },
+  }, async ({ projectId, screenName }) => {
+    const ref = designRef(projectId);
+    const j = await client.json("GET", `/designs/${encodeURIComponent(ref)}?format=json`);
+    const s = (j.screens ?? []).find((x: any) => x.name?.toLowerCase() === screenName.toLowerCase());
+    if (!s) return errText(`No screen "${screenName}". Screens: ${(j.screens ?? []).map((x: any) => x.name).join(", ")}`);
+    if (!s.code) return errText(`Screen "${s.name}" has no source yet (status: ${s.status}).`);
+    // Figma-style: hand the agent the rendered image INLINE so it can see the target without any
+    // rendering capability of its own. Fall back to a URL line if the shot can't be fetched.
+    const shot = s.screenshotUrl ? await client.bytes(s.screenshotUrl) : null;
+    // Surface-aware caption: a web/desktop screen has no phone status bar / tab bar, so don't tell the
+    // agent to build them (the #1 dogfood blocker was mobile chrome boilerplate on a desktop design).
+    const isWeb = s.surface === "web";
+    const dims = isWeb ? "1440×900" : "402×874";
+    const chrome = isWeb
+      ? `The shared chrome is the top nav bar / left sidebar — build it once and reuse it across routes; there is no phone status bar or bottom tab bar here.`
+      : `The top status-bar row (time + signal/wifi/battery) and the bottom tab bar are MOCKUP CHROME: the OS draws the status bar (reserve it with a safe-area inset, never hand-draw it; keep the app logo/header just below it), and the tab bar is shared chrome built once and reused.`;
+    const note = `Reference render of "${s.name}" (${dims}, full-bleed, rendered @2× — the app surface itself, no device frame). Build to match it. ${chrome} The TSX below is cleaned for handoff (studio-canvas attributes and the fixed-size frame removed); reproduce every value from it exactly.`;
+    if (shot) {
+      return {
+        content: [
+          { type: "image", data: shot.base64, mimeType: shot.mimeType },
+          { type: "text", text: `${note}\n\n\`\`\`tsx\n${s.code}\n\`\`\`` },
+        ],
+      };
+    }
+    // Image-less client / fetch failure: keep the full guidance + the openable reference URL so a
+    // text-only agent still has the target and the chrome rules (don't silently drop the note).
+    const urlLine = s.screenshotUrl ? `Reference image (open it — your build must match it): ${s.screenshotUrl}\n` : "";
+    return text(`${note}\n${urlLine}\n\`\`\`tsx\n${s.code}\n\`\`\``);
+  });
+
+  server.registerTool("create_design", {
+    description: "Generate a new app design from a brief. Blocks and streams progress, returning the finished design bundle in one call (no polling). Pass wait:false to return immediately with just the projectId. Optionally pass `url` (or just paste an existing site's URL in the brief) to MATCH that brand — the engine fetches the site and seeds the design's color, logo & nav from it. Vibe/palette are auto-inferred when omitted.",
+    inputSchema: { brief: z.string().min(1).max(2000), target: z.enum(["web", "mobile", "both"]).optional(), mode: z.enum(["light", "dark"]).optional(), vibe: z.string().optional(), url: z.string().optional(), format: z.enum(["markdown", "json"]).optional(), wait: z.boolean().optional() },
+  }, async ({ brief, target, mode, vibe, url, format, wait }, extra) => {
+    const created = await client.json("POST", "/designs", { brief, target, mode, vibe, url });
+    const pid = created.projectId;
+    if (wait === false) return text(`Started generating "${created.appName}". projectId: ${pid}\n→ Watch it draft live in the studio: ${studioUrl(pid)}\nCall wait_for_design("${pid}") to receive the finished bundle here.`);
+    await client.streamUntilDone(pid, reporter(extra as Extra));
+    const fmt = format === "json" ? "json" : "md";
+    const body = await client.text(`/designs/${pid}?format=${fmt}&slim=1`);
+    if (fmt === "json") return text(body);
+    const status = (await client.json("GET", `/designs/${pid}?format=json&slim=1`)).status;
+    return text(body + footer(status) + openLine(pid));
+  });
+
+  server.registerTool("add_screen", {
+    description: "Add a new on-brand screen to an existing design. Blocks and streams progress, returning when the screen is ready.",
+    inputSchema: { projectId: z.string(), name: z.string().min(1).max(80), surface: z.enum(["mobile", "web"]).optional(), wait: z.boolean().optional() },
+  }, async ({ projectId, name, surface, wait }, extra) => {
+    const ref = designRef(projectId);
+    await client.json("POST", `/designs/${encodeURIComponent(ref)}/screens`, { name, surface });
+    if (wait === false) return text(`Adding "${name}" to ${ref}. Call get_design("${ref}") shortly to pull it.${openLine(ref)}`);
+    await client.streamUntilDone(ref, reporter(extra as Extra));
+    const j = await client.json("GET", `/designs/${encodeURIComponent(ref)}?format=json`);
+    const s = (j.screens ?? []).find((x: any) => x.name?.toLowerCase() === name.toLowerCase());
+    return text((s?.code ? `Added "${s.name}":\n\n\`\`\`tsx\n${s.code}\n\`\`\`` : `Added "${name}" to ${ref}.`) + openLine(ref));
+  });
+
+  server.registerTool("wait_for_design", {
+    description: "Attach to an in-flight generation (e.g. started with wait:false or in the web studio) and receive the finished design here. Push-based — blocks once, no polling.",
+    inputSchema: { projectId: z.string(), format: z.enum(["markdown", "json"]).optional() },
+  }, async ({ projectId, format }, extra) => {
+    const ref = designRef(projectId);
+    await client.streamUntilDone(ref, reporter(extra as Extra));
+    const fmt = format === "json" ? "json" : "md";
+    const body = await client.text(`/designs/${encodeURIComponent(ref)}?format=${fmt}&slim=1`);
+    return text(fmt === "json" ? body : body + openLine(ref));
+  });
+
+  return server;
+}
+
+export { INSTRUCTIONS };

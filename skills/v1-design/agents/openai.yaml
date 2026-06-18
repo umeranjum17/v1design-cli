@@ -1,0 +1,4 @@
+interface:
+  display_name: "v-1.design"
+  short_description: "Build apps from v-1.design handoffs"
+  default_prompt: "Use $v1-design to build this app from a v-1.design Studio, share, or Library link."
