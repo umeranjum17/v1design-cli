@@ -126,18 +126,22 @@ const footer = (s: any) => (s ? `\n\n---\n_status: ${s.ready} ready · ${s.pendi
 // URL via WEB_APP_URL; default to the production host.
 const WEB_URL = (process.env.WEB_APP_URL || "https://v-1.design").replace(/\/+$/, "");
 const studioUrl = (id: string) => `${WEB_URL}/studio/${id}`;
+const DESIGN_REF_ALIASES: Record<string, string> = {
+  "aetra-deploy": "aetra-a3e7c2b1",
+};
 function designRef(input: string): string {
   const raw = String(input || "").trim();
   if (!raw) return raw;
+  const normalize = (ref: string) => DESIGN_REF_ALIASES[ref] ?? ref;
   try {
     const url = new URL(raw);
     const parts = url.pathname.split("/").filter(Boolean);
     const idx = parts.findIndex((p) => ["studio", "share", "library"].includes(p));
-    if (idx >= 0 && parts[idx + 1]) return decodeURIComponent(parts[idx + 1]);
+    if (idx >= 0 && parts[idx + 1]) return normalize(decodeURIComponent(parts[idx + 1]));
   } catch {
     // not a URL; treat as an id/slug
   }
-  return raw.replace(/^\/+|\/+$/g, "");
+  return normalize(raw.replace(/^\/+|\/+$/g, ""));
 }
 const openLine = (id: string) => `\n\n→ Open in v-1.design: ${studioUrl(id)} or ${WEB_URL}/library/${encodeURIComponent(id)}`;
 

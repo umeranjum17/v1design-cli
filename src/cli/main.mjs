@@ -9,6 +9,9 @@ import { login, logout, readCredentials, status, DEFAULT_API_URL } from "./auth.
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SKILL_SOURCE = join(ROOT, "skills", "v1-design");
+const DESIGN_REF_ALIASES = {
+  "aetra-deploy": "aetra-a3e7c2b1",
+};
 
 function usage() {
   console.log(`v1design
@@ -44,13 +47,14 @@ function parse(argv) {
 
 function designRef(input) {
   const raw = String(input || "").trim();
+  const normalize = (ref) => DESIGN_REF_ALIASES[ref] || ref;
   try {
     const url = new URL(raw);
     const parts = url.pathname.split("/").filter(Boolean);
     const idx = parts.findIndex((p) => ["studio", "share", "library"].includes(p));
-    if (idx >= 0 && parts[idx + 1]) return decodeURIComponent(parts[idx + 1]);
+    if (idx >= 0 && parts[idx + 1]) return normalize(decodeURIComponent(parts[idx + 1]));
   } catch {}
-  return raw.replace(/^\/+|\/+$/g, "");
+  return normalize(raw.replace(/^\/+|\/+$/g, ""));
 }
 
 async function credentials() {
