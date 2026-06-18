@@ -12,14 +12,14 @@ import { z } from "zod";
 
 const INSTRUCTIONS = `v-1.design is a design engine ("the forge") that generates on-brand app UI — real React/TSX screens + a shadcn/Tailwind design system (globals.css) + a DESIGN.md.
 
-WORKFLOW: create_design with a product brief → it generates on the user's account → the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists them.
+WORKFLOW: if the user provides an app idea but no design link, search_library first, inspect the best matching Library design with get_design, then choose a reference and build from it. For a new web app, include "web" in the search phrase when the user's words are surface-neutral, e.g. "book web app". create_design with a product brief generates a new design on the user's account; the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
 
 Every result also includes a studio URL (https://…/studio/<id>) — SHARE IT with the user so they can open the design in their browser to see it rendered and tweak it visually.
 
 HOW TO REPRODUCE FAITHFULLY (like Figma's Dev Mode): the engine is the renderer and the source of truth. get_screen_code returns the engine-RENDERED reference image of a screen INLINE — you see exactly how it should look with no rendering capability of your own — plus the screen's TSX. Build to match the image by reading the EXACT values (sizes, spacing, colors as tokens, radii, weights) from the TSX/design-tokens.json — do not eyeball or "improve". There is no required screenshot-diff loop; precise values + the image you're handed are what guarantee the match (if you happen to be able to render your build, comparing it to the image is a nice self-check, not a requirement). In every render, the top status-bar row (time + signal/wifi/battery) and the bottom tab bar are MOCKUP CHROME, not app content: the OS draws the status bar (reserve it with a safe-area inset, never hand-draw it) and the tab bar is shared chrome you build ONCE and reuse.
 
 THEN BUILD THE REAL APP. The screens are a visual reference (web React + Tailwind tokens) — you own routing, state, data and the implementation. Pick the path for the user's target:
-• WEB (React + Tailwind / shadcn): use the screens almost directly — drop app/globals.css in (use the token classes bg-background / text-foreground / bg-primary / rounded-lg, never hard-code colors), load the two Google fonts from DESIGN.md, extract the shared chrome (nav/sidebar/tab bar) into ONE reused component, then one route per screen, replacing placeholder content with real data/state.
+• WEB (Next.js + React + Tailwind / shadcn by default for a new repo): start with a Next.js App Router TypeScript project unless the target repo already uses another stack or the user asks otherwise. Use the screens almost directly — drop app/globals.css in (use the token classes bg-background / text-foreground / bg-primary / rounded-lg, never hard-code colors), load the two Google fonts from DESIGN.md, extract the shared chrome (nav/sidebar/tab bar) into ONE reused component, then one route per screen, replacing placeholder content with real data/state. The reference frame is not a viewport contract: the app must fill the browser, adapt at wide/normal/mobile sizes, and never leave exposed body whitespace from a fixed 1440px shell.
 • REACT NATIVE / EXPO, FLUTTER, SWIFTUI or any non-Tailwind stack: the TSX won't run as-is — treat the design as the SOURCE OF TRUTH for look & feel and re-implement it natively. Read design-tokens.json for palette/type/radius (convert OKLCH→hex/rgb if needed) into your theme (RN StyleSheet/NativeWind, Flutter ThemeData/ColorScheme, SwiftUI Color/Font); read each screen's TSX for layout/hierarchy/spacing/composition/copy and rebuild with native primitives (View/Text/FlatList, Column/Row, VStack/HStack) — match the structure, don't paste Tailwind classes. Keep the same tokens across screens.
 
 IMPORTANT: never poll. create_design / add_screen / wait_for_design are push-based — they stream progress and return the finished design in one call. get_design is a single read, not a loop.`;
@@ -129,6 +129,22 @@ const studioUrl = (id: string) => `${WEB_URL}/studio/${id}`;
 const DESIGN_REF_ALIASES: Record<string, string> = {
   "aetra-deploy": "aetra-a3e7c2b1",
 };
+const SEARCH_STOPWORDS = new Set(["app", "apps", "design", "designs", "ui", "ux", "template", "templates"]);
+const SEARCH_ALIASES: Record<string, string[]> = {
+  book: ["book", "books", "reading", "library", "literary"],
+  books: ["book", "books", "reading", "library", "literary"],
+  ebook: ["book", "books", "reading", "library", "literary"],
+  ebooks: ["book", "books", "reading", "library", "literary"],
+  read: ["read", "reading", "reader", "book", "books", "literary"],
+  reader: ["read", "reading", "reader", "book", "books", "literary"],
+  desktop: ["web"],
+  landing: ["web"],
+  mobileapp: ["mobile"],
+  webapp: ["web"],
+  webpage: ["web"],
+  website: ["web"],
+  websites: ["web"],
+};
 function designRef(input: string): string {
   const raw = String(input || "").trim();
   if (!raw) return raw;
@@ -145,9 +161,91 @@ function designRef(input: string): string {
 }
 const openLine = (id: string) => `\n\n→ Open in v-1.design: ${studioUrl(id)} or ${WEB_URL}/library/${encodeURIComponent(id)}`;
 
+function librarySearchTokenGroups(query: string): string[][] {
+  return String(query || "")
+    .toLowerCase()
+    .split(/[^a-z0-9-]+/)
+    .filter(Boolean)
+    .filter((token) => !SEARCH_STOPWORDS.has(token))
+    .map((token) => SEARCH_ALIASES[token] ?? [token]);
+}
+
+function librarySearchText(card: any): string {
+  return [
+    card.appName,
+    card.summary,
+    card.category,
+    ...(card.tags ?? []),
+    ...(card.surfaces ?? []),
+  ].join(" ").toLowerCase();
+}
+
+function librarySearchTerms(card: any): Set<string> {
+  return new Set(librarySearchText(card).split(/[^a-z0-9]+/).filter(Boolean));
+}
+
+function libraryCardScore(card: any, groups: string[][]): number {
+  const tagSet = new Set((card.tags ?? []).map((tag: string) => String(tag).toLowerCase()));
+  const surfaceSet = new Set((card.surfaces ?? []).map((surface: string) => String(surface).toLowerCase()));
+  const category = String(card.category ?? "").toLowerCase();
+  const appName = String(card.appName ?? "").toLowerCase();
+  const summary = String(card.summary ?? "").toLowerCase();
+  const terms = librarySearchTerms(card);
+  let score = 0;
+
+  for (const group of groups) {
+    let groupScore = 0;
+    for (const token of group) {
+      if (tagSet.has(token)) groupScore += 8;
+      if (category === token || surfaceSet.has(token)) groupScore += 6;
+      if (terms.has(token)) groupScore += 2;
+      if (token.length >= 5 && appName.includes(token)) groupScore += 4;
+      if (token.length >= 5 && summary.includes(token)) groupScore += 2;
+      for (const tag of tagSet) {
+        if (token.length >= 5 && String(tag).includes(token)) groupScore += 3;
+      }
+    }
+    score += groupScore || -1;
+  }
+
+  if (card.verified?.status === "pass") score += 0.5;
+  if (card.tier === "free") score += 0.2;
+  if (card.beta) score -= 1;
+  return score;
+}
+
+function searchLibraryCards(cards: any[], query: string): any[] {
+  const groups = librarySearchTokenGroups(query);
+  const ranked = (cards ?? [])
+    .map((card, index) => ({ card, index, score: libraryCardScore(card, groups), terms: librarySearchTerms(card) }))
+    .filter((entry) => !groups.length || entry.score > 0)
+    .sort((a, b) => (b.score - a.score) || (a.index - b.index));
+  const strict = groups.length
+    ? ranked.filter((entry) => groups.every((group) => group.some((token) => entry.terms.has(token))))
+    : ranked;
+  return (strict.length ? strict : ranked).map((entry) => entry.card);
+}
+
 /** Build the MCP server. `client` is how its tools reach the engine (stdio → remote; HTTP → loopback). */
 export function buildServer(client: EngineHttpClient): McpServer {
   const server = new McpServer({ name: "v-1.design", version: "1.0.0" }, { instructions: INSTRUCTIONS });
+
+  server.registerTool("search_library", {
+    description: "Search the v-1.design Library catalog by app idea, tags, category, or surface. Use this before choosing a reference when the user asks for a new app but does not provide a design link.",
+    inputSchema: { query: z.string().default(""), limit: z.number().int().min(1).max(50).optional() },
+  }, async ({ query, limit }) => {
+    const j = await client.json("GET", "/api/library");
+    const matches = searchLibraryCards(j.designs ?? [], query).slice(0, limit ?? 8);
+    if (!matches.length) {
+      return text(`No Library designs matched "${query}". Try broader words like web, mobile, books, reading, dashboard, marketplace, finance, or health.`);
+    }
+    const rows = matches.map((d: any) => {
+      const tags = (d.tags ?? []).slice(0, 8).join(", ");
+      const surfaces = (d.surfaces ?? []).join(", ") || "unknown surface";
+      return `- ${d.appName} (${d.slug})\n  ${d.summary}\n  ${d.category ?? "uncategorized"} · ${surfaces}${tags ? ` · ${tags}` : ""}\n  ${WEB_URL}/library/${encodeURIComponent(d.slug)}`;
+    });
+    return text(`Library matches for "${query || "all"}":\n${rows.join("\n")}`);
+  });
 
   server.registerTool("list_designs", { description: "List the designs on your v-1.design account." }, async () => {
     const j = await client.json("GET", "/designs");

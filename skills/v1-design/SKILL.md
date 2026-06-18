@@ -1,6 +1,6 @@
 ---
 name: v1-design
-description: Build real apps from v-1.design Studio, share, or Library links using the v1design CLI and local connector. Use when the user asks to point an agent at a v-1.design design, install/connect the v-1.design agent or CLI, pull a design handoff, implement screens from v-1.design references, continue a generated design in a codebase, or create a new design through v-1.design and then build it end to end.
+description: Build real apps from v-1.design Studio, share, or Library links using the v1design CLI and local connector. Use when the user asks to point an agent at a v-1.design design, search the v-1.design Library for references, install/connect the v-1.design agent or CLI, pull a design handoff, implement screens from v-1.design references, continue a generated design in a codebase, or create a new design through v-1.design and then build it end to end.
 ---
 
 # v-1.design
@@ -16,6 +16,8 @@ Use v-1.design as the source of truth for app design handoffs. The goal is not t
 - Prefer v1design tool calls when they are available. Use the CLI as the fallback or for artifacts.
 - Treat v-1.design TSX, design tokens, `globals.css`, and rendered reference images as design source material; adapt them into the target repo's framework instead of blindly dropping incompatible code.
 - Build the real app surface: routes, shared chrome, state, data mocks/fixtures, interactions, empty/loading/error states, and responsive behavior.
+- For a new web app repo, start with a Next.js App Router TypeScript project with Tailwind unless the user or existing repo requires another stack.
+- For web apps, do not ship the reference frame as a fixed-width page. A 1440x900 handoff is a design reference, not the app viewport contract. The implementation must own the full browser viewport, avoid exposed body whitespace, and adapt or scale the design for wide, normal, and narrow screens.
 - Visually verify against the v-1.design references before finalizing.
 
 ## Safety Boundaries
@@ -45,9 +47,31 @@ v1design status
 
 3. If only browser authorization needs to be repeated, run `v1design login`.
 
+## Choose A Library Reference
+
+Use this when the user gives an app idea but no exact v-1.design link.
+
+Prefer tool calls:
+
+```text
+search_library("book app", limit=8)
+get_design("<chosen-library-url-or-slug>")
+```
+
+CLI fallback:
+
+```bash
+v1design library search "book app" --limit 8
+v1design designs get "<chosen-library-url-or-slug>"
+```
+
+Choose the closest reference by product category, surface, tags, and visual fit. Tell the user which design you chose only if it affects the build; otherwise proceed directly into implementation. If no Library result fits, create a new design with `create_design` / `v1design create`.
+For a new web app, include `web` in the search phrase when the user's words are surface-neutral, for example `book web app`.
+
 ## Build From A Design
 
 1. Inspect the target repo first: package manager, framework, routing, styling system, component conventions, and existing test/dev scripts.
+   - If there is no target web repo yet, create a Next.js App Router TypeScript project with Tailwind in the requested new repo and build there.
 2. Fetch the handoff.
 
 Prefer tool calls:
@@ -73,7 +97,7 @@ v1design screens get "<v-1.design-url-or-id>" "<screen name>"
    - Create real routes/screens.
    - Wire expected interactions and state.
    - Install missing UI/icon/font dependencies only when needed.
-6. Run the app and verification commands. Use screenshots or browser checks where the UI matters.
+6. Run the app and verification commands. Use screenshots or browser checks where the UI matters. For web, check wide desktop, normal desktop, and narrow/mobile viewport sizes; exposed body whitespace or a fixed-width shell on a wide browser is a blocking bug.
    - When the user asks to open or show the app, keep the dev/preview server running until the lead agent or user stops it.
    - If you are a subagent and cannot keep a long-running process alive, say that plainly and return the exact app path, command, host, and port for the lead agent to start.
    - Do not report a dev URL as live after stopping the server.

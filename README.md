@@ -18,6 +18,7 @@ Use $v1-design to build this app from https://v-1.design/library/<slug>
 You can also use the real CLI directly:
 
 ```bash
+v1design library search "book app"
 v1design pull "https://v-1.design/library/<slug>"
 v1design designs get "https://v-1.design/studio/<id>"
 v1design screens get "https://v-1.design/studio/<id>" Home

@@ -12,6 +12,23 @@ const SKILL_SOURCE = join(ROOT, "skills", "v1-design");
 const DESIGN_REF_ALIASES = {
   "aetra-deploy": "aetra-a3e7c2b1",
 };
+const WEB_URL = (process.env.V1_DESIGN_WEB_URL || "https://v-1.design").replace(/\/+$/, "");
+const SEARCH_STOPWORDS = new Set(["app", "apps", "design", "designs", "ui", "ux", "template", "templates"]);
+const SEARCH_ALIASES = {
+  book: ["book", "books", "reading", "library", "literary"],
+  books: ["book", "books", "reading", "library", "literary"],
+  ebook: ["book", "books", "reading", "library", "literary"],
+  ebooks: ["book", "books", "reading", "library", "literary"],
+  read: ["read", "reading", "reader", "book", "books", "literary"],
+  reader: ["read", "reading", "reader", "book", "books", "literary"],
+  desktop: ["web"],
+  landing: ["web"],
+  mobileapp: ["mobile"],
+  webapp: ["web"],
+  webpage: ["web"],
+  website: ["web"],
+  websites: ["web"],
+};
 
 function usage() {
   console.log(`v1design
@@ -22,6 +39,7 @@ Usage:
   v1design status
   v1design logout
   v1design create "brief" [--target web|mobile|both] [--wait] [--json]
+  v1design library search "book app" [--json] [--limit 8]
   v1design designs list [--json]
   v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip] [--allow-project-write]
   v1design pull <design-ref> [--out handoff.zip] [--allow-project-write]
@@ -58,6 +76,71 @@ function designRef(input) {
     if (idx >= 0 && parts[idx + 1]) return normalize(decodeURIComponent(parts[idx + 1]));
   } catch {}
   return normalize(raw.replace(/^\/+|\/+$/g, ""));
+}
+
+function librarySearchTokenGroups(query) {
+  return String(query || "")
+    .toLowerCase()
+    .split(/[^a-z0-9-]+/)
+    .filter(Boolean)
+    .filter((token) => !SEARCH_STOPWORDS.has(token))
+    .map((token) => SEARCH_ALIASES[token] || [token]);
+}
+
+function librarySearchText(card) {
+  return [
+    card.appName,
+    card.summary,
+    card.category,
+    ...(card.tags || []),
+    ...(card.surfaces || []),
+  ].join(" ").toLowerCase();
+}
+
+function librarySearchTerms(card) {
+  return new Set(librarySearchText(card).split(/[^a-z0-9]+/).filter(Boolean));
+}
+
+function libraryCardScore(card, groups) {
+  const tagSet = new Set((card.tags || []).map((tag) => String(tag).toLowerCase()));
+  const surfaceSet = new Set((card.surfaces || []).map((surface) => String(surface).toLowerCase()));
+  const category = String(card.category || "").toLowerCase();
+  const appName = String(card.appName || "").toLowerCase();
+  const summary = String(card.summary || "").toLowerCase();
+  const terms = librarySearchTerms(card);
+  let score = 0;
+
+  for (const group of groups) {
+    let groupScore = 0;
+    for (const token of group) {
+      if (tagSet.has(token)) groupScore += 8;
+      if (category === token || surfaceSet.has(token)) groupScore += 6;
+      if (terms.has(token)) groupScore += 2;
+      if (token.length >= 5 && appName.includes(token)) groupScore += 4;
+      if (token.length >= 5 && summary.includes(token)) groupScore += 2;
+      for (const tag of tagSet) {
+        if (token.length >= 5 && tag.includes(token)) groupScore += 3;
+      }
+    }
+    score += groupScore || -1;
+  }
+
+  if (card.verified?.status === "pass") score += 0.5;
+  if (card.tier === "free") score += 0.2;
+  if (card.beta) score -= 1;
+  return score;
+}
+
+function searchLibraryCards(cards, query) {
+  const groups = librarySearchTokenGroups(query);
+  const ranked = (cards || [])
+    .map((card, index) => ({ card, index, score: libraryCardScore(card, groups), terms: librarySearchTerms(card) }))
+    .filter((entry) => !groups.length || entry.score > 0)
+    .sort((a, b) => (b.score - a.score) || (a.index - b.index));
+  const strict = groups.length
+    ? ranked.filter((entry) => groups.every((group) => group.some((token) => entry.terms.has(token))))
+    : ranked;
+  return (strict.length ? strict : ranked).map((entry) => entry.card);
 }
 
 async function credentials() {
@@ -241,6 +324,30 @@ async function listDesigns(flags) {
   }
 }
 
+async function searchLibrary(query, flags) {
+  const needle = String(query || "").trim();
+  const limit = Math.max(1, Math.min(50, Number(flags.limit || 8) || 8));
+  const json = await request("GET", "/api/library");
+  const matches = searchLibraryCards(json.designs || [], needle).slice(0, limit);
+  if (flags.json) {
+    printJson({ query: needle, count: matches.length, designs: matches });
+    return;
+  }
+  if (!matches.length) {
+    console.log(`No Library designs matched "${needle}". Try broader words like web, mobile, books, reading, dashboard, marketplace, finance, or health.`);
+    return;
+  }
+  console.log(`Library matches for "${needle || "all"}":`);
+  for (const d of matches) {
+    const tags = (d.tags || []).slice(0, 8).join(", ");
+    const surfaces = (d.surfaces || []).join(", ") || "unknown surface";
+    console.log(`- ${d.appName} · ${d.slug}`);
+    console.log(`  ${d.summary}`);
+    console.log(`  ${d.category || "uncategorized"} · ${surfaces}${tags ? ` · ${tags}` : ""}`);
+    console.log(`  ${WEB_URL}/library/${encodeURIComponent(d.slug)}`);
+  }
+}
+
 async function getDesign(refInput, flags) {
   const ref = designRef(refInput);
   if (!ref) throw new Error("Design ref required.");
@@ -350,6 +457,7 @@ async function main() {
   if (cmd === "create") { await createDesign([sub, ...rest].filter(Boolean).join(" "), flags); return; }
   if (cmd === "pull") { await pull(sub, flags); return; }
   if (cmd === "skill" && sub === "install") { await installSkill(flags); return; }
+  if (cmd === "library" && sub === "search") { await searchLibrary(rest.join(" "), flags); return; }
   if (cmd === "designs" && sub === "list") { await listDesigns(flags); return; }
   if (cmd === "designs" && sub === "get") { await getDesign(rest[0], flags); return; }
   if (cmd === "screens" && sub === "get") { await getScreen(rest[0], rest.slice(1).join(" "), flags); return; }

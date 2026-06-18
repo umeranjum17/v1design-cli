@@ -20,7 +20,7 @@ if (cmd === "login" || cmd === "auth:login") {
     console.error("[v1design-agent] logout failed:", e instanceof Error ? e.message : e);
     process.exit(1);
   });
-} else if (["help", "--help", "-h", "connect", "setup", "create", "designs", "pull", "screens", "skill"].includes(cmd || "")) {
+} else if (["help", "--help", "-h", "connect", "setup", "create", "library", "designs", "pull", "screens", "skill"].includes(cmd || "")) {
   import("./main.mjs").catch((e) => {
     console.error("[v1design-agent] cli failed:", e instanceof Error ? e.message : e);
     process.exit(1);
