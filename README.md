@@ -7,7 +7,7 @@ npm i -g @v1design/cli
 v1design connect
 ```
 
-`v1design connect` installs the bundled `v1-design` skill, opens v-1.design for browser authorization, stores the local connection at `~/.v1design/credentials.json`, and configures supported local agent clients.
+`v1design connect` installs the bundled `v1-design` skill, opens v-1.design for browser authorization, stores the local connection at `~/.v1design/credentials.json`, and configures Codex by default. Cursor and Claude setup are opt-in with `--client cursor`, `--client claude`, or `--client all`.
 
 After that, point your agent at any Studio, share, or Library link:
 
@@ -18,10 +18,12 @@ Use $v1-design to build this app from https://v-1.design/library/<slug>
 You can also use the real CLI directly:
 
 ```bash
-v1design pull "https://v-1.design/library/<slug>" --out handoff.zip
+v1design pull "https://v-1.design/library/<slug>"
 v1design designs get "https://v-1.design/studio/<id>"
-v1design screens get "https://v-1.design/studio/<id>" Home --out Home.tsx
+v1design screens get "https://v-1.design/studio/<id>" Home
 ```
+
+Generated references default to `~/.v1design/workspace/<design-ref>`, for example `~/.v1design/workspace/aetra-a3e7c2b1/handoff.zip`. The CLI refuses to write inside a Git worktree unless `--allow-project-write` is passed, which keeps private repos read-only unless you deliberately choose one as the target app.
 
 ## What This Package Contains
 

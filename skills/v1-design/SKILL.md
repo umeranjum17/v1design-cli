@@ -18,6 +18,14 @@ Use v-1.design as the source of truth for app design handoffs. The goal is not t
 - Build the real app surface: routes, shared chrome, state, data mocks/fixtures, interactions, empty/loading/error states, and responsive behavior.
 - Visually verify against the v-1.design references before finalizing.
 
+## Safety Boundaries
+
+- The CLI is not a repo migration tool and must not use private product/source repos as scratch space.
+- Use v-1.design Library links, Studio/share links, or `create_design` as the design source. Do not copy private source code, private docs, `.env` files, credentials, or local engine internals into the handoff or target app.
+- Treat unrelated local repos as read-only. Only edit the app repo that the user explicitly identifies as the implementation target.
+- For dogfood, tests, or exploratory work, create a fresh temp repo/workspace and write CLI artifacts there or under `~/.v1design/workspace/<design-ref>`.
+- When running CLI commands from inside a Git worktree, avoid artifact writes there unless that repo is the intended target and the user has explicitly approved it. The CLI refuses Git-worktree writes by default unless `--allow-project-write` is passed.
+
 ## Connection Flow
 
 1. Run the seamless setup:
@@ -27,7 +35,7 @@ npm install -g @v1design/cli
 v1design connect
 ```
 
-This installs the skill, opens v-1.design in the browser, lets the user click Authorize, stores the connection locally in `~/.v1design/credentials.json`, and configures supported local agent clients. Do not print, request, or hand-copy credentials.
+This installs the skill, opens v-1.design in the browser, lets the user click Authorize, stores the connection locally in `~/.v1design/credentials.json`, and configures Codex by default. Cursor and Claude setup are opt-in with `--client cursor`, `--client claude`, or `--client all`. Do not print, request, or hand-copy credentials.
 
 2. If troubleshooting, check connection status:
 
@@ -53,8 +61,8 @@ CLI fallback:
 
 ```bash
 v1design designs get "<v-1.design-url-or-id>"
-v1design pull "<v-1.design-url-or-id>" --out v1design-handoff.zip
-v1design screens get "<v-1.design-url-or-id>" "<screen name>" --out Screen.tsx
+v1design pull "<v-1.design-url-or-id>"
+v1design screens get "<v-1.design-url-or-id>" "<screen name>"
 ```
 
 3. Read the handoff for design tokens, global CSS, screen names, surfaces, dependencies, and component contracts.

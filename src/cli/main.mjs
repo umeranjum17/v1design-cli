@@ -1,8 +1,8 @@
 // v1design — human/script CLI for v-1.design.
 import "dotenv/config";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, parse as parsePath, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { login, logout, readCredentials, status, DEFAULT_API_URL } from "./auth.ts";
@@ -18,18 +18,21 @@ function usage() {
 
 Usage:
   v1design login
-  v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills]
+  v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills] [--allow-project-write]
   v1design status
   v1design logout
   v1design create "brief" [--target web|mobile|both] [--wait] [--json]
   v1design designs list [--json]
-  v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip]
-  v1design pull <design-ref> [--out handoff.zip]
-  v1design screens get <design-ref> <screen-name> [--out Screen.tsx] [--json]
-  v1design skill install [--target ~/.codex/skills]
+  v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip] [--allow-project-write]
+  v1design pull <design-ref> [--out handoff.zip] [--allow-project-write]
+  v1design screens get <design-ref> <screen-name> [--out Screen.tsx] [--json] [--allow-project-write]
+  v1design skill install [--target ~/.codex/skills] [--allow-project-write]
 
 Design refs can be Studio links, share links, Library links, raw ids, or Library slugs.
-Run "v1design connect" once; no secret or config copying is needed after that.`);
+Run "v1design connect" once; no secret or config copying is needed after that.
+
+Safety: generated artifacts default to ~/.v1design/workspace/<design-ref>. The CLI refuses
+to write inside a Git worktree unless --allow-project-write is passed.`);
 }
 
 function parse(argv) {
@@ -39,7 +42,7 @@ function parse(argv) {
     const a = argv[i];
     if (!a.startsWith("--")) { args.push(a); continue; }
     const key = a.slice(2);
-    if (["json", "wait", "full", "no-wait"].includes(key)) flags[key] = true;
+    if (["json", "wait", "full", "no-wait", "allow-project-write"].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { args, flags };
@@ -92,11 +95,68 @@ function expandHome(p) {
   return String(p || "").replace(/^~(?=$|\/|\\)/, process.env.HOME || "~");
 }
 
+function v1Home() {
+  return resolve(expandHome(process.env.V1DESIGN_HOME || join(process.env.HOME || ".", ".v1design")));
+}
+
+function pathInside(child, parent) {
+  const c = resolve(child);
+  const p = resolve(parent);
+  return c === p || c.startsWith(p.endsWith(sep) ? p : `${p}${sep}`);
+}
+
+async function findGitWorktree(path) {
+  let dir = resolve(path);
+  try {
+    const s = await stat(dir);
+    if (!s.isDirectory()) dir = dirname(dir);
+  } catch {
+    dir = dirname(dir);
+  }
+  while (true) {
+    if (existsSync(join(dir, ".git"))) return dir;
+    const next = dirname(dir);
+    if (next === dir || next === parsePath(dir).root) return null;
+    dir = next;
+  }
+}
+
+function projectWriteAllowed(flags = {}) {
+  return Boolean(flags["allow-project-write"]) || process.env.V1DESIGN_ALLOW_PROJECT_WRITE === "1";
+}
+
+async function assertSafeWritePath(path, flags = {}, label = "output") {
+  const resolved = resolve(expandHome(path));
+  const allowedRoots = [
+    v1Home(),
+    resolve(expandHome(process.env.CODEX_HOME || join(process.env.HOME || ".", ".codex"))),
+  ];
+  if (allowedRoots.some((root) => pathInside(resolved, root))) return resolved;
+  const gitRoot = await findGitWorktree(resolved);
+  if (gitRoot && !projectWriteAllowed(flags)) {
+    throw new Error(
+      `Refusing to write ${label} inside Git worktree ${gitRoot}.\n` +
+      `Use a temp path or ~/.v1design/workspace, or pass --allow-project-write if this repo is the intended target.`
+    );
+  }
+  return resolved;
+}
+
+function workspaceDirFor(ref) {
+  const safe = String(ref || "design").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "design";
+  return join(v1Home(), "workspace", safe);
+}
+
+function handoffPathFor(ref) {
+  return join(workspaceDirFor(ref), "handoff.zip");
+}
+
 async function installSkill(flags) {
   if (!existsSync(SKILL_SOURCE)) throw new Error(`Bundled skill missing: ${SKILL_SOURCE}`);
   const base = flags.target
     ? resolve(expandHome(flags.target))
     : join(process.env.CODEX_HOME || join(process.env.HOME || ".", ".codex"), "skills");
+  await assertSafeWritePath(base, flags, "skill target");
   const dest = join(base, "v1-design");
   await mkdir(base, { recursive: true });
   await cp(SKILL_SOURCE, dest, { recursive: true, force: true });
@@ -121,8 +181,9 @@ async function configureCodex() {
   console.log(`Configured Codex local connector at ${configPath}`);
 }
 
-async function configureCursor() {
+async function configureCursor(flags = {}) {
   const configPath = join(process.cwd(), ".cursor", "mcp.json");
+  await assertSafeWritePath(configPath, flags, "Cursor MCP config");
   let json = {};
   const current = await readText(configPath);
   if (current.trim()) {
@@ -154,13 +215,13 @@ async function runClaudeSetup() {
 }
 
 async function connect(flags) {
-  await installSkill({ target: flags.target });
+  await installSkill(flags);
   await login();
   const client = String(flags.client || "auto").toLowerCase();
   const configureAll = client === "all";
   const auto = client === "auto";
   if (configureAll || auto || client === "codex") await configureCodex();
-  if (configureAll || client === "cursor" || (auto && existsSync(join(process.cwd(), ".cursor")))) await configureCursor();
+  if (configureAll || client === "cursor") await configureCursor(flags);
   if (configureAll || client === "claude") await runClaudeSetup();
   console.log("v-1.design is connected. In your agent, say: Use $v1-design to build this app from <v-1.design link>.");
 }
@@ -184,9 +245,11 @@ async function getDesign(refInput, flags) {
   const ref = designRef(refInput);
   if (!ref) throw new Error("Design ref required.");
   if (flags.zip) {
+    const zipPath = await assertSafeWritePath(String(flags.zip), flags, "design zip");
     const bytes = await request("GET", `/designs/${encodeURIComponent(ref)}?format=zip`, undefined, "bytes");
-    await writeFile(String(flags.zip), bytes);
-    console.log(`Wrote ${flags.zip}`);
+    await mkdir(dirname(zipPath), { recursive: true });
+    await writeFile(zipPath, bytes);
+    console.log(`Wrote ${zipPath}`);
     return;
   }
   const format = flags.json ? "json" : "md";
@@ -197,20 +260,23 @@ async function getDesign(refInput, flags) {
 }
 
 async function pull(refInput, flags) {
-  const out = String(flags.out || "v1design-handoff.zip");
+  const ref = designRef(refInput);
+  const out = String(flags.out || handoffPathFor(ref));
   await getDesign(refInput, { ...flags, zip: out });
 }
 
 async function getScreen(refInput, screenName, flags) {
   const ref = designRef(refInput);
   if (!ref || !screenName) throw new Error("Usage: v1design screens get <design-ref> <screen-name>");
+  const outPath = flags.out ? await assertSafeWritePath(String(flags.out), flags, "screen output") : "";
   const json = await request("GET", `/designs/${encodeURIComponent(ref)}?format=json`, undefined, "json");
   const screen = (json.screens || []).find((s) => s.name?.toLowerCase() === screenName.toLowerCase());
   if (!screen) throw new Error(`No screen "${screenName}". Screens: ${(json.screens || []).map((s) => s.name).join(", ")}`);
   if (flags.json) { printJson(screen); return; }
   if (flags.out) {
-    await writeFile(String(flags.out), screen.code || "");
-    console.log(`Wrote ${flags.out}`);
+    await mkdir(dirname(outPath), { recursive: true });
+    await writeFile(outPath, screen.code || "");
+    console.log(`Wrote ${outPath}`);
     return;
   }
   console.log(screen.code || `// ${screen.name} has no code in this handoff.`);
