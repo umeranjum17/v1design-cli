@@ -10,14 +10,17 @@ import {
 import { semanticToHex } from "./color.mjs";
 import { transpileScreenRN } from "./rn-transpile.mjs";
 
-// Google-Fonts family → @expo-google-fonts package name.
+// Google-Fonts family → @expo-google-fonts package name (hyphenated slug):
+//   "Space Grotesk" → @expo-google-fonts/space-grotesk
 function expoFontPkg(family) {
   if (!family) return null;
-  const slug = String(family).toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return `@expo-google-fonts/${slug}`;
+  const slug = String(family).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug ? `@expo-google-fonts/${slug}` : null;
 }
+// Export identifier inside the package: separators stripped, case preserved:
+//   "Space Grotesk" → SpaceGrotesk_400Regular ; "IBM Plex Sans" → IBMPlexSans_400Regular
 function fontExportName(family) {
-  return String(family || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return String(family || "").replace(/[^a-zA-Z0-9]+/g, "");
 }
 
 function buildTheme(handoff) {
@@ -262,9 +265,10 @@ export async function buildExpoProject(handoff, screens, opts = {}) {
 
     const engineRn = rnMap?.byName?.[String(s.name).toLowerCase()];
     if (engineRn) {
-      // True-native: the engine's RN rewrite is self-contained — use it directly.
+      // True-native: the engine's RN rewrite is self-contained. Mount it under a
+      // top safe-area inset (the router's Tabs owns the bottom).
       files[`components/screens/${s.componentName}.tsx`] = engineRn.includes("export default") ? engineRn : `${engineRn}\nexport default ${s.componentName};\n`;
-      files[`app/(tabs)/${rslug}.tsx`] = `import ${s.componentName} from "@/components/screens/${s.componentName}";\nexport default ${s.componentName};\n`;
+      files[`app/(tabs)/${rslug}.tsx`] = `import React from "react";\nimport { SafeAreaView } from "react-native-safe-area-context";\nimport { colors } from "@/lib/theme";\nimport ${s.componentName} from "@/components/screens/${s.componentName}";\n\nexport default function Route() {\n  return (\n    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["top"]}>\n      <${s.componentName} />\n    </SafeAreaView>\n  );\n}\n`;
     } else if (!opts.referenceOnly && transpileScreenRN(s.code, s.componentName)) {
       // Fallback: local best-effort transpile.
       files[`components/screens/${s.componentName}.tsx`] = transpileScreenRN(s.code, s.componentName).code;

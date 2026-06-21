@@ -118,6 +118,7 @@ export function expoPackageJson(name, fontPkgs = []) {
       dependencies: {
         expo: EXPO_SDK,
         "expo-router": "4.0.21",
+        "expo-asset": "11.0.5",
         "expo-constants": "17.0.8",
         "expo-linking": "7.0.5",
         "expo-font": "13.0.4",
@@ -128,6 +129,7 @@ export function expoPackageJson(name, fontPkgs = []) {
         "react-native": "0.76.9",
         "react-native-safe-area-context": "4.12.0",
         "react-native-screens": "4.4.0",
+        "react-native-svg": "15.8.0",
         "react-native-web": "0.19.13",
         nativewind: "4.1.23",
         "react-native-reanimated": "3.16.7",
