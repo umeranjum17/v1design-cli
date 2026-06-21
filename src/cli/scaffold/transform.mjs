@@ -68,11 +68,15 @@ function hasClientDirective(code) {
  */
 export function fullBleedRoot(code) {
   const FIXED_W = /(?<![A-Za-z])width\s*:\s*(?:\d{4,}\b|["']\d{4,}px["'])/;
+  // A style object is an artboard ROOT when it sets a fixed artboard-scale width
+  // AND looks like a page frame. The frame marker varies by design — some use
+  // `minHeight: "100vh"`, some `minHeight: 900`, some only paint the page bg —
+  // so accept any of: a min-height (any value), a 100vh/100dvh height, or a
+  // background that references the page background token.
+  const ROOTISH = /min-?height\s*:|height\s*:\s*["']100d?vh["']|background(?:-color)?\s*:\s*[^,}]*var\(\s*--(?:background|bg|page|surface)\b/i;
   let out = String(code);
-  // Inline style objects that frame a full-height artboard.
   out = out.replace(/style=\{\{([^{}]*)\}\}/g, (full, body) => {
-    const fullHeight = /(?:min-?height|height)\s*:\s*["']100d?vh["']/i.test(body);
-    if (!fullHeight || !FIXED_W.test(body)) return full;
+    if (!FIXED_W.test(body) || !ROOTISH.test(body)) return full;
     return "style={{" + body.replace(new RegExp(FIXED_W.source, "g"), 'width: "100%"') + "}}";
   });
   // Tailwind artboard frame: w-[NNNNpx] (artboard scale) → w-full.
