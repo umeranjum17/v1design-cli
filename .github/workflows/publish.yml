@@ -7,32 +7,28 @@ on:
 
 permissions:
   contents: read
-  id-token: write # for npm provenance + OIDC trusted publishing
+  id-token: write # for npm provenance
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      # NOTE: no `registry-url` here on purpose. setup-node's registry-url writes an
-      # .npmrc with `_authToken=${NODE_AUTH_TOKEN}`, and an empty token shadows the
-      # OIDC trusted-publishing flow (ENEEDAUTH). The default registry is npmjs, so
-      # OIDC publish works without it.
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      # npm >= 11.5.1 supports OIDC trusted publishing + provenance.
       - run: npm install -g npm@latest
       - run: npm --version
       - run: npm ci
       - run: npm run typecheck
       - run: npm run check:bin
       - run: npm run check:pack-install
-      # Auth via npm Trusted Publishing (OIDC). npm >= 11.5.1 + id-token: write +
-      # a trusted publisher configured on npmjs.com for this repo + publish.yml.
-      # Do NOT set NODE_AUTH_TOKEN here: an empty token shadows the OIDC flow and
-      # causes ENEEDAUTH. (To use an automation token instead, add NODE_AUTH_TOKEN:
-      # ${{ secrets.NPM_TOKEN }} below and remove the trusted publisher.)
+      # Auth via an npm Automation access token stored as the repo secret NPM_TOKEN.
+      # (Trusted Publishing is the no-secret alternative, but requires the npmjs-side
+      # publisher config to match exactly; the token path is deterministic.)
       - name: Publish to npm
         run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
