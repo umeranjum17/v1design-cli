@@ -41,4 +41,9 @@ WOW verdict is `v1design grade`; this checklist is what you fix BEFORE asking fo
 - Real, domain-specific content (no lorem; empty/loading/error states where data shows).
 - Mobile: native feel (SafeArea, OS status bar, ≥44pt targets, real RN primitives — never
   a screenshot as a screen).
-- Screenshot each route and run `v1design grade` — fix everything it flags, loop until pass.
+- Run `v1design grade` for the visual oracle and treat its notes as a craft fix-list
+  (blow up the hero · ONE saturated accent · one dark structural peak · wider type ramp).
+
+Browser-optional: every item above is verifiable from the CODE with `grep` + `curl` +
+`next build` — see `references/port-polish-recipe.md` for the exact grep/curl gates.
+Do NOT assume Playwright is installed; one-shot the passing build deterministically.

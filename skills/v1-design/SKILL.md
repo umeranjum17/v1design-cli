@@ -37,7 +37,13 @@ Prefer the v1design MCP tools when available; otherwise use the CLI. Connect onc
 
 ## Step 3 — PORT & POLISH to best standards (the real job — be harsh)
 Default verdict is **REJECT**. If ANYTHING is even slightly subpar, fix it, then
-re-check. Hold every one of these — they are not optional:
+re-check. Hold every one of these — they are not optional.
+
+**Read `references/port-polish-recipe.md` and apply it — it is the one-shot recipe.**
+Every fix below lives in the CODE and is verifiable WITHOUT a browser (curl + grep +
+`next build`). Do NOT assume Playwright/MCP is available — the recipe gives the
+grep/curl checks that catch the same failures (fixed-width shell, 390px overflow, dead
+`href="#"` nav, unloaded fonts) deterministically. A browser is for eyeballing only.
 
 1. **Builds & runs.** `v1design verify <dir> --heal` → clean build, every route serves
    200 with a real page, no console errors.
@@ -46,12 +52,18 @@ re-check. Hold every one of these — they are not optional:
    shows on wider screens. Make the app **own the full viewport**: the root fills 100%
    width, content is full-bleed or sensibly max-widthed-and-centered (never a
    left-aligned fixed block with a gutter), and it adapts at 1920 / 1280 / 390. The body
-   background is the design background, never bare black. Check at multiple widths.
+   background is the design background, never bare black.
+   No-browser checks: `grep -rn "1440\|PAGE_W" components app` must be empty; add
+   `html,body{ max-width:100%; overflow-x:clip }` + give every `repeat(N,1fr)` / fixed
+   two-col grid a narrow-viewport collapse so 390px never scrolls sideways (recipe §1, §5).
 3. **Navigation actually works — pages CONNECTED.** Every nav item, tab, and primary
    button that points at another screen must really route to that screen's page
    (Next.js `<Link>` / `router.push`, or expo-router `<Link>` / `router.push`). A nav
    that looks clickable but does nothing is a hard fail. Wire the in-screen nav labels
-   to the real routes you scaffolded.
+   to the real routes you scaffolded. Build the nav/footer chrome ONCE in a shared
+   component and reuse it; do not copy the bar into every screen.
+   No-browser check: `grep -rn "href=\"#\"" app components` must be EMPTY, and every nav
+   label must have a matching `app/<route>/page.tsx` (recipe §2).
 4. **Fonts actually load.** The design's display + body faces must render — not a system
    fallback that changes the look. If a family is not a real Google/Expo font (e.g. a
    Fontshare face like "Clash Display", "General Sans", "PP Editorial New"), substitute
