@@ -87,4 +87,20 @@ npm pack --dry-run
 
 ## Publishing
 
-Publish from the public GitHub repository with npm Trusted Publishing. Configure npm's trusted publisher for `umeranjum17/v1design-cli` and workflow filename `publish.yml`; the workflow publishes with public access and no long-lived npm token.
+Publishing runs in CI (`.github/workflows/publish.yml`) on a GitHub Release (or manual
+`workflow_dispatch`). The workflow type-checks, runs the bin + packed-install smoke
+tests, then `npm publish --access public --provenance`. Configure ONE auth method:
+
+**Option A — Automation token (fastest, foolproof).**
+1. npmjs.com → your avatar → Access Tokens → Generate New Token → **Granular Access
+   Token** (or classic **Automation**). Scope it to publish `@v1design/cli`.
+2. GitHub repo → Settings → Secrets and variables → Actions → New repository secret,
+   name `NPM_TOKEN`, paste the token.
+
+**Option B — Trusted Publishing (no stored secret).**
+1. npmjs.com → the `@v1design/cli` package → Settings → **Trusted Publisher** →
+   GitHub Actions, with repository `umeranjum17/v1design-cli` and workflow file
+   `publish.yml`. (Leave `NPM_TOKEN` unset; the workflow uses the OIDC id-token.)
+
+Then publish by creating a release: `gh release create vX.Y.Z` (or re-run the
+workflow). Provenance is attached automatically via the `id-token: write` permission.

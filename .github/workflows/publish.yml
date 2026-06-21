@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write # for npm provenance + OIDC trusted publishing
 
 jobs:
   publish:
@@ -19,9 +19,20 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
+      # npm >= 11.5.1 supports OIDC trusted publishing + provenance.
       - run: npm install -g npm@latest
+      - run: npm --version
       - run: npm ci
       - run: npm run typecheck
       - run: npm run check:bin
       - run: npm run check:pack-install
-      - run: npm publish --access public
+      # Auth resolves in one of two ways (configure ONE — see README "Publishing"):
+      #  A) Trusted Publishing: configure the trusted publisher on npmjs.com for this
+      #     repo + workflow file. No secret needed; NODE_AUTH_TOKEN stays empty and npm
+      #     uses the OIDC id-token automatically.
+      #  B) Automation token: add an npm Automation access token as the repo secret
+      #     NPM_TOKEN. The line below picks it up.
+      - name: Publish to npm
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
