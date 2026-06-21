@@ -14,10 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      # NOTE: no `registry-url` here on purpose. setup-node's registry-url writes an
+      # .npmrc with `_authToken=${NODE_AUTH_TOKEN}`, and an empty token shadows the
+      # OIDC trusted-publishing flow (ENEEDAUTH). The default registry is npmjs, so
+      # OIDC publish works without it.
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           package-manager-cache: false
       # npm >= 11.5.1 supports OIDC trusted publishing + provenance.
       - run: npm install -g npm@latest
