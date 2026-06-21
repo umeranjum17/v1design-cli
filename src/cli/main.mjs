@@ -45,6 +45,9 @@ Usage:
   v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip] [--allow-project-write]
   v1design pull <design-ref> [--out handoff.zip] [--allow-project-write]
   v1design screens get <design-ref> <screen-name> [--out Screen.tsx] [--json] [--allow-project-write]
+  v1design tokens get <design-ref> [--out tokens.json]
+  v1design theme  get <design-ref> [--css] [--out theme.css|theme.json]
+  v1design colors get <design-ref> [--out colors.json]
   v1design skill install [--target ~/.codex/skills] [--allow-project-write]
 
 Build a runnable, verified app (idea or a specific design → Next.js / Expo):
@@ -100,7 +103,7 @@ function parse(argv) {
     const key = a.slice(2);
     if ([
       "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "loose-surface",
-      "install", "run", "yes", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip",
+      "install", "run", "yes", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css",
     ].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
@@ -645,6 +648,9 @@ async function main() {
   if (cmd === "designs" && sub === "list") { await listDesigns(flags); return; }
   if (cmd === "designs" && sub === "get") { await getDesign(rest[0], flags); return; }
   if (cmd === "screens" && sub === "get") { await getScreen(rest[0], rest.slice(1).join(" "), flags); return; }
+  if (cmd === "tokens" && sub === "get") { const { tokensGetCommand } = await import("./theme.mjs"); await tokensGetCommand(rest[0], flags); return; }
+  if (cmd === "theme" && sub === "get") { const { themeGetCommand } = await import("./theme.mjs"); await themeGetCommand(rest[0], flags); return; }
+  if (cmd === "colors" && sub === "get") { const { colorsGetCommand } = await import("./theme.mjs"); await colorsGetCommand(rest[0], flags); return; }
 
   // ── build commands (lazy-loaded so existing commands stay fast) ──────────
   if (cmd === "new") {

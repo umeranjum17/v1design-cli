@@ -46,6 +46,24 @@ Prefer the v1design MCP tools when available; otherwise use the CLI. Connect onc
   (a fixed-width frame, unwired nav, a fallback font, a plain tab bar). Step 3 is where
   YOU make it awesome — do not skip it and do not declare done on the raw scaffold.
 
+## The library is a RAG — pull anything, compose it yourself
+Every design in v-1.design (yours, anyone's, any library entry) is fully pullable and
+mixable. YOU do the composition — there are no magic deterministic transforms; you pull
+the raw material and decide. Prefer **pulling a proven look over inventing one.**
+- Pull tokens: `v1design tokens get <ref>` / `get_tokens` — semantic light+dark, primitive
+  ramps, radius, typography/fonts, hex.
+- Pull a whole theme: `v1design theme get <ref> --css` / `get_theme` — the literal
+  `globals.css` (light + dark blocks + `@theme` map). **Re-skin a scaffolded app by
+  writing it to `app/globals.css`**: every screen styles via `var(--token)`, so the whole
+  app restyles and the dev server hot-reloads. Want just a different mood? `v1design vibe`.
+- Pull a palette: `v1design colors get <ref>` / `get_colors` — seed, harmony, accents.
+- Pull a screen: `v1design screens get <ref> <name>` — lift one screen's TSX.
+- **Mix and match freely:** palette from one design, the type/fonts from another, a screen
+  from a third. Swapping a font or recoloring is yours to do — pull the values and edit
+  `globals.css` / the layout font links. Treat "what should this look like?" as a
+  RETRIEVAL problem first (search the library, pull the closest), generation only as a
+  last resort. Keep it on-system: edit the tokens, not 200 inline styles.
+
 ## Step 3 — PORT & POLISH to best standards (the real job — be harsh)
 Default verdict is **REJECT**. If ANYTHING is even slightly subpar, fix it, then
 re-check. Hold every one of these — they are not optional.

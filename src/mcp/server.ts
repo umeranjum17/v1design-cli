@@ -482,6 +482,34 @@ export function buildServer(client: EngineHttpClient): McpServer {
     return text(`Re-skinned "${intent}" → ${r.file}. The running dev server hot-reloads the new look.`);
   });
 
+  // ---- the library as a RAG: pull tokens / theme / colors from ANY design ----
+  server.registerTool("get_tokens", {
+    description: "Pull a design's tokens from ANY design in the library (the library is a RAG, not just a gallery): semantic light+dark, primitive ramps, radius, typography/fonts, and hex. Compose them yourself — lift a palette, swap a font, mix two designs. Prefer pulling a proven theme over inventing colors.",
+    inputSchema: { ref: z.string().describe("Studio/share/library URL, project id, or library slug.") },
+  }, async ({ ref }) => {
+    const { tokensGetCommand } = await import("../cli/theme.mjs");
+    const r: any = await tokensGetCommand(ref, { __return: true });
+    return text(JSON.stringify(r, null, 2));
+  });
+
+  server.registerTool("get_theme", {
+    description: "Pull a design's full theme from ANY library design: the complete globals.css (light + dark token blocks + @theme map), or structured JSON. To re-skin a scaffolded app, write the CSS to its app/globals.css — every screen restyles via the tokens and the dev server hot-reloads.",
+    inputSchema: { ref: z.string(), as: z.enum(["css", "json"]).optional().describe("css = the literal globals.css; json = structured (default)") },
+  }, async ({ ref, as }) => {
+    const { themeGetCommand } = await import("../cli/theme.mjs");
+    const r: any = await themeGetCommand(ref, { css: as === "css", __return: true });
+    return text(typeof r === "string" ? r : JSON.stringify(r, null, 2));
+  });
+
+  server.registerTool("get_colors", {
+    description: "Pull a design's palette from ANY library design: seed, harmony, accent roles (primary/secondary/accent/destructive) and full primitive ramps, light + dark hex. Use it to recolor or match another design's look.",
+    inputSchema: { ref: z.string() },
+  }, async ({ ref }) => {
+    const { colorsGetCommand } = await import("../cli/theme.mjs");
+    const r: any = await colorsGetCommand(ref, { __return: true });
+    return text(JSON.stringify(r, null, 2));
+  });
+
   return server;
 }
 
