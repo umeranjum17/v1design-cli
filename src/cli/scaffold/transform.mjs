@@ -56,15 +56,19 @@ export function transformScreenWeb(code, screen) {
     return `export default function ${screen.componentName || "Screen"}() {\n  return null;\n}\n`;
   }
 
-  // 1. "use client" — these screens use hooks/effects/handlers under App Router.
+  // "use client" — these screens use hooks/effects/handlers under App Router.
   if (needsClientDirective(out) && !hasClientDirective(out)) {
     out = `"use client";\n\n${out}`;
   }
 
-  // 2. Unique, descriptive component name (default export preserved).
+  // Unique, descriptive component name (default export preserved).
   const name = screen.componentName || "Screen";
   out = out.replace(/export default function\s+Screen\b/, `export default function ${name}`);
 
+  // NOTE: design adaptations (full-bleed/full-width, nav-link wiring, font
+  // fallback, contrast, tab-bar polish) are deliberately NOT hardcoded here —
+  // they're per-project judgments the agent makes per the skill, enforced by the
+  // gate. See skills/v1-design (Polish & port) + verify/grade.
   return out.endsWith("\n") ? out : out + "\n";
 }
 

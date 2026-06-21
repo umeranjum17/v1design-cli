@@ -1,39 +1,44 @@
-# Design self-check (generic UI hygiene)
+# Design self-check (harsh — default REJECT)
 
-Read this before judging any UI you built. It is a general "does this look
-intentional and consistent" checklist — common-sense design hygiene any good
-designer applies. The authoritative WOW verdict comes from `v1design grade`.
+Read this before judging any UI you built or ported. Be strict: if anything is even
+slightly subpar, fix it and re-check. "It renders" is not "it passes." The authoritative
+WOW verdict is `v1design grade`; this checklist is what you fix BEFORE asking for it.
 
-Default verdict before checks pass is REJECT. Finalize only on a clean pass.
+## Builds & runs
+- Clean build; every route serves a real page (not an error overlay / blank body).
+- No console errors on load or after one interaction per route.
 
-## Coherence
-- One coherent palette. Colors come from the design tokens, not ad-hoc hex
-  values sprinkled through the markup.
-- A single focal accent, used sparingly — roughly one peak per screen. A second
-  loud accent competing for attention reads as unfinished.
-- Consistent type scale and spacing. Headings, body, and captions follow a clear
-  hierarchy; spacing uses a consistent rhythm rather than arbitrary values.
+## Full viewport (no fixed-width shell)
+- The app owns the FULL browser width. No black/empty gutter on a wide screen, no
+  left-aligned fixed block. The studio frames screens at a fixed artboard (e.g.
+  `width: 1440`) — neutralize it: root fills 100% width, full-bleed or
+  max-width-and-centered, adapts at 1920 / 1280 / 390.
+- The page background is the design background, never bare black.
 
-## Real, not placeholder
-- Real, domain-specific content. No "lorem ipsum", no "Title goes here".
-- Where data is shown, handle the empty, loading, and error states — not just the
-  happy path.
-- Icon-only buttons have accessible labels; images have alt text.
+## Navigation connected
+- Every nav item / tab / primary CTA that points at another screen ROUTES there
+  (Next `<Link>`/`router.push`, expo-router `<Link>`/`router.push`). A clickable-looking
+  nav that does nothing is a hard fail.
 
-## Structure
-- Every distinct screen is its own real route, not a tab-state branch inside one
-  file pretending to be multiple screens.
-- Web: the app owns the full viewport and adapts to wide, normal, and narrow
-  widths. A fixed-width shell with exposed whitespace on a wide browser is wrong.
-- Mobile: native feel — safe-area respected, a shared tab bar/chrome built once,
-  comfortable touch targets, scrollable where content overflows.
+## Fonts load
+- The intended display + body faces render — not a system fallback. Non-Google families
+  (Clash Display, General Sans, PP Editorial New, …) get the closest available font,
+  aliased to the original family name so the look is preserved. Confirm the rendered
+  `font-family`, don't assume.
 
-## It actually works
-- Builds clean and runs. Every route returns a real page (not an error overlay or
-  a blank body). No console errors on load.
-- Fonts actually load (the intended display + body faces render, not a fallback).
+## Contrast & legibility (best standards)
+- WCAG AA: body ≥ 4.5:1, large text ≥ 3:1 against its actual background. Add a scrim if
+  text sits over imagery. No washed-out labels.
+- Kill porting artifacts: default-blue links, stray `::selection`/focus highlights, wrong
+  focus-ring color → restyle on-brand (selection = accent, links inherit, ring = design token).
 
-## How to act on a miss
-- Build/route failure → `v1design verify <dir> --heal`.
-- Looks off but builds → screenshot each route, run `v1design grade <dir>`, and
-  fix what it reports. Keep iterating until it passes; never finalize on a fail.
+## Tab bar / chrome
+- Intentional and on-theme: real icons + labels, a SINGLE bar (never doubled), correct
+  active/inactive states. No placeholder glyphs (`⏷`), no bare labels where the design had
+  icons. Built once and reused.
+
+## Content & match
+- Real, domain-specific content (no lorem; empty/loading/error states where data shows).
+- Mobile: native feel (SafeArea, OS status bar, ≥44pt targets, real RN primitives — never
+  a screenshot as a screen).
+- Screenshot each route and run `v1design grade` — fix everything it flags, loop until pass.
