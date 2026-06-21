@@ -404,6 +404,84 @@ export function buildServer(client: EngineHttpClient): McpServer {
     return text(fmt === "json" ? body : body + openLine(ref));
   });
 
+  // ── high-level orchestration verbs (state intent, not steps) ────────────
+  // These wrap the v1design build pipeline so the agent issues one call. They
+  // produce a runnable project on disk and run the deterministic gate.
+
+  server.registerTool("build_app", {
+    description: "Scaffold a runnable app from a v-1.design design (a library/studio/share URL or slug) and verify it. Produces a real Next.js (web) or Expo (mobile) project on disk — tokens, fonts, one route per screen — then builds + boots + probes every route. Use after the user has chosen a design. Returns the project path, routes, and the verify result.",
+    inputSchema: {
+      ref: z.string().describe("design URL, id, or library slug"),
+      surface: z.enum(["web", "mobile"]).optional(),
+      out: z.string().optional().describe("output directory (defaults to ~/.v1design/workspace/<ref>)"),
+      install: z.boolean().optional().describe("install dependencies (default true)"),
+    },
+  }, async ({ ref, surface, out, install }) => {
+    const { scaffoldFromRef } = await import("../cli/scaffold.mjs");
+    const result: any = await scaffoldFromRef(ref, { surface, out, install: install ?? true, "allow-project-write": true });
+    try {
+      const { verifyProject } = await import("../cli/verify.mjs");
+      result.verify = await verifyProject(result.projectDir, { against: result.ref, surface: result.surface });
+    } catch (e: any) { result.verifyError = String(e?.message ?? e); }
+    return text(`Built ${result.framework} app at ${result.projectDir}\nRoutes: ${result.routes.map((r: any) => r.path).join("  ")}\nVerify: ${result.verify ? (result.verify.pass ? "PASSED" : "issues found") : (result.verifyError || "skipped")}\nRun: ${result.runCommand}`);
+  });
+
+  server.registerTool("remix_app", {
+    description: "Merge screens from two or more v-1.design designs into ONE coherent app. The --system design's tokens win and the others re-skin to match. Produces a runnable project on disk. Pass refs as URLs/ids/slugs, optionally with #ScreenName to pick specific screens.",
+    inputSchema: {
+      refs: z.array(z.string()).min(2).describe("two+ design refs (optionally ref#ScreenName)"),
+      system: z.string().optional().describe("which design's system wins (default: first ref)"),
+      surface: z.enum(["web", "mobile"]).optional(),
+      out: z.string().optional(),
+      install: z.boolean().optional(),
+    },
+  }, async ({ refs, system, surface, out, install }) => {
+    const { remixCommand } = await import("../cli/remix.mjs");
+    const result: any = await remixCommand(refs, { system, surface, out, install: install ?? false, "allow-project-write": true, json: false });
+    return text(`Remixed ${result.screens.length} screens from ${result.sources.length} designs into the ${result.system} system.\nProject: ${result.projectDir}\nRoutes: ${result.routes.map((r: any) => r.path).join("  ")}${result.conflicts ? `\n${result.conflicts} donor screen(s) flagged in REMIX-CONFLICTS.md` : ""}`);
+  });
+
+  server.registerTool("verify_app", {
+    description: "Verify a scaffolded app: build it, boot it, probe every route for HTTP 200 + a real page, run structural checks, and (with heal) attempt bounded auto-fixes. This is the deterministic quality gate — run it before declaring any v-1.design-derived build done.",
+    inputSchema: {
+      dir: z.string().describe("project directory"),
+      heal: z.boolean().optional().describe("attempt auto-fixes and re-run"),
+      against: z.string().optional().describe("design ref to grade against"),
+    },
+  }, async ({ dir, heal, against }) => {
+    const { verifyProject } = await import("../cli/verify.mjs");
+    const r: any = await verifyProject(dir, { heal, against, install: true });
+    const routes = (r.routes || []).map((x: any) => `${x.ok ? "✓" : "✗"} ${x.route} (${x.status})`).join("\n");
+    const checks = (r.structural || []).map((x: any) => `${x.ok ? "✓" : "✗"} ${x.name}`).join("\n");
+    return text(`Verify ${r.pass ? "PASSED" : "FAILED"}\nbuild: ${r.build ? "ok" : "FAILED"}\n${checks}\n${routes}${r.pass ? "" : "\n\nFix the failures (or run with heal), then re-verify. For the WOW verdict, screenshot the routes and use grade."}`);
+  });
+
+  server.registerTool("grade", {
+    description: "Get the WOW / visual verdict for a scaffolded app from the v-1.design oracle (the authoritative quality gate). Runs the deterministic gate, then asks the engine to score the build against the design's reference. Optionally pass screenshots of the running app for a per-screen visual comparison.",
+    inputSchema: {
+      dir: z.string(),
+      against: z.string().optional(),
+      surface: z.enum(["web", "mobile"]).optional(),
+    },
+  }, async ({ dir, against, surface }) => {
+    const { gradeProject } = await import("../cli/grade.mjs");
+    const r: any = await gradeProject(dir, { against, surface });
+    const oracle = r.oracle?.available === false ? `oracle: ${r.oracle.note}` : `oracle: ${r.oracle?.pass ? "pass" : "below bar"}`;
+    return text(`Grade ${r.pass ? "PASS" : "below bar"}\ndeterministic gate: ${r.deterministic.pass ? "pass" : "FAIL"}\n${oracle}${r.oracle?.issues?.length ? "\n- " + r.oracle.issues.join("\n- ") : ""}`);
+  });
+
+  server.registerTool("vibe", {
+    description: "Hot re-skin a scaffolded app's design tokens — e.g. 'darker', 'teal fintech', 'warmer'. Because every screen styles via design tokens, this morphs the whole app at once. The running dev server hot-reloads the new look.",
+    inputSchema: {
+      intent: z.string().describe("e.g. 'darker', 'teal fintech', 'more vivid'"),
+      dir: z.string().describe("the scaffolded app directory"),
+    },
+  }, async ({ intent, dir }) => {
+    const { vibeCommand } = await import("../cli/vibe.mjs");
+    const r: any = await vibeCommand(intent, { in: dir, json: false });
+    return text(`Re-skinned "${intent}" → ${r.file}. The running dev server hot-reloads the new look.`);
+  });
+
   return server;
 }
 

@@ -47,6 +47,17 @@ Usage:
   v1design screens get <design-ref> <screen-name> [--out Screen.tsx] [--json] [--allow-project-write]
   v1design skill install [--target ~/.codex/skills] [--allow-project-write]
 
+Build a runnable, verified app (idea or a specific design → Next.js / Expo):
+  v1design new "idea" [--surface web|mobile] [--target ./dir] [--design <ref>] [--install] [--run]
+  v1design scaffold <design-ref> [--surface web|mobile] [--out ./dir] [--install] [--run] [--no-verify]
+  v1design remix <refA> <refB> [--system <ref>] [--surface web|mobile] [--out ./dir] [--install]
+  v1design verify [dir] [--heal] [--against <ref>] [--json]
+  v1design grade <dir> [--against <ref>] [--json]
+  v1design vibe "darker|teal fintech|..." [--in ./dir]
+  v1design compose <design-ref> --add "Settings,Billing" [--wait]
+  v1design compare <refA> <refB> [--surface web|mobile] [--open]
+  v1design screenshots <design-ref> [--out ./shots] [--screens A,B]
+
 Design refs can be Studio links, share links, Library links, raw ids, or Library slugs.
 Run "v1design connect" once; no secret or config copying is needed after that.
 
@@ -87,7 +98,10 @@ function parse(argv) {
     const a = argv[i];
     if (!a.startsWith("--")) { args.push(a); continue; }
     const key = a.slice(2);
-    if (["json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "loose-surface"].includes(key)) flags[key] = true;
+    if ([
+      "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "loose-surface",
+      "install", "run", "yes", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip",
+    ].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { args, flags };
@@ -612,6 +626,44 @@ async function main() {
   if (cmd === "designs" && sub === "list") { await listDesigns(flags); return; }
   if (cmd === "designs" && sub === "get") { await getDesign(rest[0], flags); return; }
   if (cmd === "screens" && sub === "get") { await getScreen(rest[0], rest.slice(1).join(" "), flags); return; }
+
+  // ── build commands (lazy-loaded so existing commands stay fast) ──────────
+  if (cmd === "new") {
+    const { newCommand } = await import("./wizard.mjs");
+    await newCommand([sub, ...rest].filter(Boolean).join(" "), flags); return;
+  }
+  if (cmd === "scaffold") {
+    const { scaffoldCommand } = await import("./scaffold.mjs");
+    await scaffoldCommand(sub, flags); return;
+  }
+  if (cmd === "remix") {
+    const { remixCommand } = await import("./remix.mjs");
+    await remixCommand([sub, ...rest].filter(Boolean), flags); return;
+  }
+  if (cmd === "verify") {
+    const { verifyCommand } = await import("./verify.mjs");
+    await verifyCommand(sub, flags); return;
+  }
+  if (cmd === "grade") {
+    const { gradeCommand } = await import("./grade.mjs");
+    await gradeCommand(sub, flags); return;
+  }
+  if (cmd === "vibe") {
+    const { vibeCommand } = await import("./vibe.mjs");
+    await vibeCommand([sub, ...rest].filter(Boolean).join(" "), flags); return;
+  }
+  if (cmd === "compose") {
+    const { composeCommand } = await import("./compose.mjs");
+    await composeCommand(sub, flags); return;
+  }
+  if (cmd === "compare") {
+    const { compareCommand } = await import("./compare.mjs");
+    await compareCommand([sub, ...rest].filter(Boolean), flags); return;
+  }
+  if (cmd === "screenshots" || (cmd === "export" && flags.png)) {
+    const { screenshotsCommand } = await import("./screenshots.mjs");
+    await screenshotsCommand(cmd === "export" ? sub : sub, flags); return;
+  }
 
   usage();
   process.exitCode = 1;

@@ -1,6 +1,6 @@
 {
   "name": "@v1design/cli",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "type": "module",
   "description": "v-1.design CLI, local agent connector, and bundled Codex/Claude skill.",
   "license": "MIT",
@@ -43,8 +43,10 @@
     "prepack": "npm run typecheck && npm run check:bin"
   },
   "dependencies": {
+    "@clack/prompts": "^0.7.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "dotenv": "^17.4.2",
+    "picocolors": "^1.1.1",
     "tsx": "^4.22.3",
     "zod": "^4.4.3"
   },

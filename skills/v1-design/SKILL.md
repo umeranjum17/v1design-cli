@@ -1,155 +1,87 @@
 ---
 name: v1-design
-description: Build real apps from v-1.design Studio, share, or Library links using the v1design CLI and local connector. Use when the user asks to point an agent at a v-1.design design, search the v-1.design Library for references, install/connect the v-1.design agent or CLI, pull a design handoff, implement screens from v-1.design references, continue a generated design in a codebase, or create a new design through v-1.design and then build it end to end.
+description: Build a real, WOW-grade app from v-1.design — from a plain idea or a specific design reference — then gate the output until it passes. Use when the user says "use v1design to build ...", points at a v-1.design library/studio/share link or slug, asks to remix or clone v-1.design references, wants to add a screen to a v-1.design-derived app, or wants to search the v-1.design library. The skill drives discovery, scaffold, and a verify→heal quality gate; the human stays in plain language.
 ---
 
-# v-1.design
+# v-1.design — build it, then gate it until it's right
 
-## Overview
+## What this skill does
+You are the build-and-gate brain for v-1.design. The user's entire input is one
+sentence ("use v1design to build X"). You take it from there: discover or resolve
+a reference, scaffold a real runnable app, then GATE the output — it is not done
+until it builds, runs, and looks coherent and consistent, confirmed by
+`v1design verify` (and `v1design grade`). Never ask the user which command or flag
+to run; ask only when a genuine taste fork exists.
 
-Use v-1.design as the source of truth for app design handoffs. The goal is not to paste prompts by hand; connect once, pull the design, implement the app, verify it against the references, and report what shipped.
+Prefer the v1design MCP tools when available; otherwise use the CLI (same behavior).
+Connect once with `v1design connect` — never ask the user for an API key.
 
-## Core Rules
+## When to act vs wait
+- Trigger on: "use v1design to build/clone/remix …", a v-1.design link/slug,
+  "add a screen to this v1design app", or an explicit request to use v-1.design.
+- Read-only discovery (search/preview) is fine anytime. Do not scaffold, write
+  files, or edit the repo until the user has asked you to build/use one.
 
-- Do not ask the user for an API key in the normal path. Use `v1design connect`.
-- Accept any v-1.design Studio URL, share URL, Library URL, project id, or Library slug as the design reference.
-- Prefer v1design tool calls when they are available. Use the CLI as the fallback or for artifacts.
-- Stay non-intrusive until the user explicitly asks to use v-1.design in the project. Read-only discovery is okay; creating designs, pulling artifacts, fetching screen files, or editing the app is not.
-- Treat v-1.design TSX, design tokens, `globals.css`, and rendered reference images as design source material; adapt them into the target repo's framework instead of blindly dropping incompatible code.
-- Build the real app surface: routes, shared chrome, state, data mocks/fixtures, interactions, empty/loading/error states, and responsive behavior.
-- For a new web app repo, start with a Next.js App Router TypeScript project with Tailwind unless the user or existing repo requires another stack.
-- For a new mobile app repo, start with Expo + React Native unless the user or existing repo requires another stack.
-- For web apps, do not ship the reference frame as a fixed-width page. A 1440x900 handoff is a design reference, not the app viewport contract. The implementation must own the full browser viewport, avoid exposed body whitespace, and adapt or scale the design for wide, normal, and narrow screens.
-- Visually verify against the v-1.design references before finalizing.
+## Step 1 — read the intent: an idea, or a specific design?
+- **Idea** ("a habit tracker", "a landing like Linear but warmer") → you DISCOVER.
+  Search the library agentically: issue several queries across entity types
+  (whole designs, individual screens, logos, components), broaden/narrow keywords,
+  dedupe, and pick the strongest matches. Present a few directions and let the user
+  pick (pick yourself only if they delegate). Remix on request.
+  - CLI: `v1design new "<idea>" --surface web|mobile`  (interactive when a TTY)
+  - or: `v1design library search "<idea>" --surface web --json` then choose.
+- **Specific design** (URL / slug / "the one I picked") → resolve the ref and build
+  it AS-IS: skip discovery and remix, build faithfully against that design's own
+  reference.
+  - CLI: `v1design new "<url|slug>"`  or  `v1design scaffold <ref>`
+- Infer the surface from the ask: web → Next.js, mobile → Expo + React Native,
+  unless an existing repo dictates otherwise.
 
-## Safety Boundaries
+## Step 2 — build
+- New project: `v1design scaffold <ref> --surface <web|mobile> --out <dir> --install`
+  produces a real runnable app (real routes, the design's tokens, fonts, shared
+  chrome). For an idea, `v1design new` wraps search + scaffold.
+- Remix two or more: `v1design remix <refA> <refB> --system <refA> --out <dir>` —
+  merges screens from several designs into ONE coherent system (the `--system`
+  design's tokens win; others re-skin to match).
+- Existing repo: keep its stack; pull screens with `v1design screens get <ref> "<name>"`
+  and add the smallest clean routes/components that fit.
+- The v-1.design design (tokens, globals.css, screen code, rendered reference) is
+  the source of truth. Adapt it into the target framework. Never ship a fixed-width
+  mockup as a page.
 
-- The CLI is not a repo migration tool and must not use private product/source repos as scratch space.
-- Use v-1.design Library links, Studio/share links, or `create_design` as the design source. Do not copy private source code, private docs, `.env` files, credentials, or local engine internals into the handoff or target app.
-- Treat unrelated local repos as read-only. Only edit the app repo that the user explicitly identifies as the implementation target.
-- For dogfood, tests, or exploratory work, create a fresh temp repo/workspace and write CLI artifacts there or under `~/.v1design/workspace/<design-ref>`.
-- When running CLI commands from inside a Git worktree, avoid artifact writes there unless that repo is the intended target and the user has explicitly approved it. The CLI refuses Git-worktree writes by default unless `--allow-project-write` is passed.
+## Step 3 — GATE the output (the core job — never skip)
+Whatever you produced from a v-1.design remix / clone / scaffold is NOT done until
+it passes. Read `references/design-self-check.md` before judging any UI.
+1. It builds and runs. `v1design verify <dir> --heal` builds, boots, and probes
+   every route for HTTP 200 + non-error HTML, auto-fixing what it can.
+2. It looks coherent and consistent — one palette, a single focal accent, consistent
+   type and spacing, real content (no lorem), responsive on web / native feel on
+   mobile, every screen a real route (not a fixed artboard).
+3. It matches the reference. For the visual/WOW verdict, screenshot each route of
+   the running app and run `v1design grade <dir>` (the authoritative oracle). Let
+   `verify --heal` loop until it PASSES. The verdict is the gate's, not yours — if it
+   is not there yet, keep healing; never declare done on a fail.
 
-## Connection Flow
+Default verdict before the gate passes is REJECT. Finalize only on a clean pass.
 
-1. Run the seamless setup:
+## Plain language → action (never surface a flag to the user)
+- "looks off / not quite right" → `v1design verify <dir> --heal`
+- "make it darker / more teal / calmer" → `v1design vibe "<intent>" --in <dir>`
+- "add billing / a settings screen" → `v1design compose <ref> --add "<Name>"` (stays on the app's own system)
+- "try another direction / build this one instead" → re-discover or `v1design remix …`
 
-```bash
-npm install -g @v1design/cli
-v1design connect
-```
+## Boundaries
+- Never copy private repos, source, `.env`, credentials, or local engine internals
+  into the app or the handoff.
+- Treat unrelated repos as read-only; only edit the app repo the user named.
+- Scaffold writes default to `~/.v1design/workspace/<ref>`; the CLI refuses to write
+  inside a Git worktree unless `--allow-project-write` is passed.
+- Do not print or hand-copy credentials; connect via `v1design connect`.
 
-This installs the skill, opens v-1.design in the browser, lets the user click Authorize, stores the connection locally in `~/.v1design/credentials.json`, and configures Codex by default. Cursor and Claude setup are opt-in with `--client cursor`, `--client claude`, or `--client all`. Do not print, request, or hand-copy credentials.
-
-2. If troubleshooting, check connection status:
-
-```bash
-v1design status
-```
-
-3. If only browser authorization needs to be repeated, run `v1design login`.
-
-## Choose A Library Reference
-
-Use this when the user gives an app idea or new-screen idea but no exact v-1.design link.
-
-For a brand-new project, treat reference choice as a product direction step. Search the top five relevant Library candidates, open or share the Library links, and ask the user which one resonates before pulling artifacts or writing app code. Only choose for them when they explicitly delegate that decision.
-
-Prefer tool calls:
-
-```text
-search_library(query="book app", surface="web", limit=5)
-get_design("<chosen-library-url-or-slug>")
-```
-
-CLI fallback:
-
-```bash
-v1design library suggest "book app" --surface web --limit 5 --open
-v1design designs get "<chosen-library-url-or-slug>"
-```
-
-Choose the closest reference by product category, surface, tags, and visual fit. Tell the user which design you chose only if it affects the build; otherwise proceed directly into implementation. If no Library result fits, create a new design with `create_design` / `v1design create`.
-Use `surface="web"` for browser/Next.js work and `surface="mobile"` for React Native/Expo work.
-
-If the user only asked to find references, stop after search/inspection and present the best candidates. Do not pull artifacts or edit files until they ask to use one.
-
-## Extend An Existing Project
-
-Use this when the user has an existing app and wants a new screen, flow, or redesign reference from v-1.design.
-
-1. Inspect the target repo first: package manager, framework, routing, styling system, component conventions, and existing test/dev scripts.
-2. Infer the surface from the repo:
-   - Web/browser app: search with `surface="web"` and keep the existing framework. New web repos default to Next.js, but existing React/Vite/Next apps keep their stack.
-   - Mobile app: search with `surface="mobile"` and keep the existing React Native/Expo conventions. New mobile repos default to Expo + React Native.
-3. Search Library references using the product area plus requested screen or flow, such as `billing settings web`, `book onboarding mobile`, or `analytics dashboard web`.
-4. If the user has not yet asked you to integrate or pull, present the chosen reference and why. Stop there.
-5. Once the user asks to use/pull/build/integrate it, fetch the handoff and screen code, then add the smallest clean route/component/state changes that fit the existing app.
-6. Store handoff artifacts under `~/.v1design/workspace/<design-ref>` or a temp folder. Do not dump reference files into the app repo unless they are intentionally used source assets.
-
-## Build From A Design
-
-1. Inspect the target repo first: package manager, framework, routing, styling system, component conventions, and existing test/dev scripts.
-   - If there is no target web repo yet, create a Next.js App Router TypeScript project with Tailwind in the requested new repo and build there.
-   - If there is no target mobile repo yet, create an Expo + React Native TypeScript project in the requested new repo and build there.
-2. Fetch the handoff.
-
-Prefer tool calls:
-
-```text
-get_design("<v-1.design-url-or-id>")
-get_screen_code("<v-1.design-url-or-id>", "<screen name>")
-```
-
-CLI fallback:
-
-```bash
-v1design designs get "<v-1.design-url-or-id>"
-v1design pull "<v-1.design-url-or-id>"
-v1design screens get "<v-1.design-url-or-id>" "<screen name>"
-```
-
-3. Read the handoff for design tokens, global CSS, screen names, surfaces, dependencies, and component contracts.
-4. Pull each screen's rendered reference image and TSX. Use the image for visual truth and the TSX/tokens for implementation detail.
-5. Implement in the target repo's native style:
-   - Add or merge token CSS carefully.
-   - Extract shared navigation/chrome once.
-   - Create real routes/screens.
-   - Wire expected interactions and state.
-   - Install missing UI/icon/font dependencies only when needed.
-6. Run the app and verification commands. Use screenshots or browser checks where the UI matters. For web, check wide desktop, normal desktop, and narrow/mobile viewport sizes; exposed body whitespace or a fixed-width shell on a wide browser is a blocking bug.
-   - When the user asks to open or show the app, keep the dev/preview server running until the lead agent or user stops it.
-   - If you are a subagent and cannot keep a long-running process alive, say that plainly and return the exact app path, command, host, and port for the lead agent to start.
-   - Do not report a dev URL as live after stopping the server.
-   - Prefer binding local demos to an explicit host/port such as `127.0.0.1:5179` or `0.0.0.0:5179`, then verify the URL with HTTP checks before asking the user to open it.
-7. Fix mismatches before final response.
-
-## Create Or Extend A Design
-
-Use this when the user asks v-1.design to create or evolve the design first.
-
-Tool calls:
-
-```text
-create_design("brief", target="web|mobile|both", wait=true)
-add_screen("<project-id-or-url>", "Settings", wait=true)
-wait_for_design("<project-id-or-url>")
-```
-
-CLI:
-
-```bash
-v1design create "brief" --target web --wait
-```
-
-After generation completes, follow the Build From A Design workflow.
-
-## Completion Standard
-
-Before finalizing:
-
-- Confirm the design ref used.
-- Confirm which screens/routes were implemented.
-- Mention tests, typechecks, lint, and visual checks actually run.
-- Mention the live app URL only if a server is still running there.
+## Completion standard
+- State the design ref(s) used and the screens / routes built.
+- Confirm the gate PASSED (builds + runs, coherent, matches the reference via
+  verify/grade) — plainly.
+- Give a live URL only if a server is still running there.
 - If something could not be verified, say so plainly.
