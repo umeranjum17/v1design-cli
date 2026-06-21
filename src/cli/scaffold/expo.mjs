@@ -10,17 +10,37 @@ import {
 import { semanticToHex } from "./color.mjs";
 import { transpileScreenRN } from "./rn-transpile.mjs";
 
-// Google-Fonts family → @expo-google-fonts package name (hyphenated slug):
-//   "Space Grotesk" → @expo-google-fonts/space-grotesk
-function expoFontPkg(family) {
-  if (!family) return null;
-  const slug = String(family).toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return slug ? `@expo-google-fonts/${slug}` : null;
+// Common non-Google (mostly Fontshare) families v-1.design uses → a close Google
+// fallback. The fallback's file loads, but is registered under the ORIGINAL family
+// name so the screens' `fontFamily: "<original>"` still resolves. Prevents a cold
+// `npm install` 404 on a package like @expo-google-fonts/clash-display (no such pkg).
+const NON_GOOGLE_FALLBACK = {
+  "clash display": "Space Grotesk", "clash grotesk": "Space Grotesk",
+  "cabinet grotesk": "Manrope", "general sans": "Inter", "satoshi": "Inter",
+  "switzer": "Inter", "supreme": "Inter", "chillax": "Quicksand", "panchang": "Poppins",
+  "author": "Fraunces", "ranade": "Fraunces", "sentient": "Fraunces", "zodiak": "Fraunces",
+  "melodrama": "Playfair Display", "bespoke serif": "Playfair Display",
+  "gambetta": "Cormorant", "neue montreal": "Inter", "pp neue montreal": "Inter",
+  "pp editorial new": "Playfair Display", "editorial new": "Playfair Display",
+};
+
+function googleSlug(family) {
+  return String(family || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
-// Export identifier inside the package: separators stripped, case preserved:
-//   "Space Grotesk" → SpaceGrotesk_400Regular ; "IBM Plex Sans" → IBMPlexSans_400Regular
-function fontExportName(family) {
+function googleExportFamily(family) {
   return String(family || "").replace(/[^a-zA-Z0-9]+/g, "");
+}
+
+/** Resolve a family to { name (registered/referenced), pkg, exportId }, mapping
+ *  known non-Google families to a Google fallback. Returns null for empty/System. */
+function resolveFont(family) {
+  const fam = String(family || "").trim();
+  if (!fam || /^system$/i.test(fam)) return null;
+  const fallback = NON_GOOGLE_FALLBACK[fam.toLowerCase()];
+  const loadFrom = fallback || fam;
+  const slug = googleSlug(loadFrom);
+  if (!slug) return null;
+  return { name: fam, pkg: `@expo-google-fonts/${slug}`, exportId: `${googleExportFamily(loadFrom)}_400Regular` };
 }
 
 function buildTheme(handoff) {
@@ -147,14 +167,11 @@ export function ScreenScaffold({ children }: { children: React.ReactNode }) {
 `;
 }
 
-function rootLayout(fontFamilies, fontPkgs) {
-  // Load all families via a single useFonts call.
-  const fontMap = fontPkgs
-    .map((p) => {
-      // @expo-google-fonts/<slug> exports <FamilyName>_400Regular (PascalCase family).
-      const exportName = fontExportName(fontFamilies.byPkg[p]);
-      return `    "${fontFamilies.byPkg[p]}": require("${p}").${exportName}_400Regular,`;
-    })
+function rootLayout(fontEntries) {
+  // Load all families via a single useFonts call. Each entry registers the loaded
+  // font under its ORIGINAL family name (so fallback-mapped fonts still resolve).
+  const fontMap = fontEntries
+    .map((e) => `    ${JSON.stringify(e.name)}: require(${JSON.stringify(e.pkg)}).${e.exportId},`)
     .join("\n");
   return `import React, { useEffect } from "react";
 import { Stack } from "expo-router";
@@ -188,18 +205,29 @@ function tabsLayout(screens, theme) {
   const tabs = screens
     .map((s) => `      <Tabs.Screen name=${JSON.stringify(s.routeSlug)} options={{ title: ${JSON.stringify(s.name)} }} />`)
     .join("\n");
+  // A minimal dot indicator instead of the default ⏷ glyph fallback — clean and
+  // on-theme across designs (no per-design icon set needed).
   return `import React from "react";
+import { View } from "react-native";
 import { Tabs } from "expo-router";
 import { colors } from "@/lib/theme";
 
+const Dot = ({ color }: { color: string }) => (
+  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+);
+
 export default function TabsLayout() {
+  const active = colors.accent ?? colors.primary;
+  const inactive = colors.mutedForeground ?? colors.border;
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: colors.accent ?? colors.primary,
-        tabBarInactiveTintColor: colors.mutedForeground,
+        tabBarActiveTintColor: active,
+        tabBarInactiveTintColor: inactive,
         tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border },
+        tabBarLabelStyle: { fontSize: 11, letterSpacing: 0.3 },
+        tabBarIcon: ({ focused }) => <Dot color={focused ? active : inactive} />,
       }}
     >
 ${tabs}
@@ -231,12 +259,14 @@ export async function buildExpoProject(handoff, screens, opts = {}) {
     display: theme.typography.fontDisplay,
     body: theme.typography.fontBody,
   };
-  const pkgList = [];
-  const byPkg = {};
+  // Resolve each family (non-Google → Google fallback under the original name).
+  const fontEntries = [];
+  const seenNames = new Set();
   for (const fam of [families.display, families.body]) {
-    const pkg = expoFontPkg(fam);
-    if (pkg && !pkgList.includes(pkg)) { pkgList.push(pkg); byPkg[pkg] = fam; }
+    const e = resolveFont(fam);
+    if (e && !seenNames.has(e.name)) { seenNames.add(e.name); fontEntries.push(e); }
   }
+  const pkgList = [...new Set(fontEntries.map((e) => e.pkg))];
 
   const files = {};
   files[".gitignore"] = GITIGNORE;
@@ -280,7 +310,7 @@ export async function buildExpoProject(handoff, screens, opts = {}) {
     routes.push({ name: s.name, path: `/${rslug}` });
   });
 
-  files["app/_layout.tsx"] = rootLayout({ ...families, byPkg }, pkgList);
+  files["app/_layout.tsx"] = rootLayout(fontEntries);
   files["app/(tabs)/_layout.tsx"] = tabsLayout(screens, theme);
   files["app/index.tsx"] = `import { Redirect } from "expo-router";\nexport default function Index() {\n  return <Redirect href=${JSON.stringify(`/(tabs)/${screens[0].routeSlug}`)} />;\n}\n`;
   files["README.md"] = expoReadme(name, handoff.id, routes);

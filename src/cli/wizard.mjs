@@ -12,17 +12,35 @@ function looksLikeRef(s) {
   return /^https?:\/\//.test(t) || /-[0-9a-f]{6,}$/i.test(t) || (/^[a-z0-9-]+$/i.test(t) && t.includes("-") && t.split(/\s+/).length === 1);
 }
 
+// Style/aesthetic descriptors — a match on these signals look, NOT domain, so
+// score them weakly. Otherwise "lots of photography" makes a food app (tagged
+// "photography") outrank a travel app for a travel brief.
+const STYLE_TAGS = new Set([
+  "photography", "photo", "dark", "light", "minimal", "minimalist", "editorial",
+  "modern", "bold", "clean", "premium", "luxury", "warm", "cool", "vibrant",
+  "playful", "elegant", "retro", "brutalist", "glass", "gradient", "mobile", "web",
+  "app", "dashboard", "responsive", "animated", "interactive",
+]);
+
 function scoreCard(card, tokens, surface) {
   if (surface) {
     const surfs = (card.surfaces || []).map((s) => String(s).toLowerCase());
     if (!surfs.includes(surface)) return -1;
   }
-  const text = [card.appName, card.summary, card.category, ...(card.tags || [])].join(" ").toLowerCase();
+  const tagSet = new Set((card.tags || []).map((t) => String(t).toLowerCase()));
+  const category = String(card.category || "").toLowerCase();
+  const appName = String(card.appName || "").toLowerCase();
+  const summary = String(card.summary || "").toLowerCase();
   let score = 0;
+  let domainHit = false;
   for (const t of tokens) {
-    if ((card.tags || []).some((tag) => String(tag).toLowerCase() === t)) score += 8;
-    else if (text.includes(t)) score += 3;
+    const isStyle = STYLE_TAGS.has(t);
+    if (tagSet.has(t) || category === t) { score += isStyle ? 2 : 9; if (!isStyle) domainHit = true; }
+    else if (appName.includes(t) || summary.includes(t)) { score += isStyle ? 1 : 4; if (!isStyle) domainHit = true; }
   }
+  // A candidate that only matched style/descriptor words (no domain hit) is a weak
+  // pick — keep it as a fallback but well below any true domain match.
+  if (!domainHit) score = Math.min(score, 2);
   if (card.verified?.status === "pass") score += 0.5;
   if (card.tier === "free") score += 0.2;
   if (card.beta) score -= 1;
