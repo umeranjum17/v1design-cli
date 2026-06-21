@@ -2,7 +2,7 @@
 // expo-router routes (one per screen, not tab-state), NativeWind, a hex theme
 // baked from the OKLCH tokens, fonts via expo-font, and one shared Tabs chrome.
 // Screens are transpiled to real RN primitives (never a screenshot).
-import { kebab, pascal } from "../lib/engine.mjs";
+import { kebab, pascal, apiRequest } from "../lib/engine.mjs";
 import {
   GITIGNORE, expoPackageJson, expoAppJson, EXPO_BABEL, EXPO_METRO,
   expoTailwindConfig, EXPO_TSCONFIG, EXPO_NATIVEWIND_DTS, EXPO_SDK,
@@ -206,10 +206,23 @@ ${tabs}
 `;
 }
 
-export function buildExpoProject(handoff, screens, opts = {}) {
+export async function buildExpoProject(handoff, screens, opts = {}) {
   const name = opts.name || handoff.appName || handoff.id || "v1design-app";
   const slug = kebab(name);
   const theme = buildTheme(handoff);
+
+  // Prefer the engine's true-native RN compile (LLM rewrite → real RN). Falls back
+  // to the local transpile per-screen if the endpoint or a given screen fails.
+  let rnMap = null;
+  if (!opts.referenceOnly) {
+    try {
+      const res = await apiRequest("POST", `/designs/${encodeURIComponent(handoff.id)}/rn`, { body: {} });
+      rnMap = { themeTs: res?.themeTs || null, byName: {} };
+      for (const s of res?.screens || []) if (s.rnCode) rnMap.byName[String(s.name).toLowerCase()] = s.rnCode;
+    } catch {
+      rnMap = null; // network/access failure → local transpile
+    }
+  }
 
   const families = {
     display: theme.typography.fontDisplay,
@@ -232,7 +245,7 @@ export function buildExpoProject(handoff, screens, opts = {}) {
   files["tsconfig.json"] = EXPO_TSCONFIG;
   files["nativewind-env.d.ts"] = EXPO_NATIVEWIND_DTS;
   files["global.css"] = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n`;
-  files["lib/theme.ts"] = themeTs(theme, families);
+  files["lib/theme.ts"] = rnMap?.themeTs || themeTs(theme, families);
   files["lib/webstyle.ts"] = webstyleTs(theme, families);
   files["components/ScreenScaffold.tsx"] = screenScaffold(theme);
   files["design-tokens.json"] = handoff.artifacts?.tokensJson || "{}";
@@ -247,9 +260,14 @@ export function buildExpoProject(handoff, screens, opts = {}) {
     usedSlugs.add(rslug);
     s.routeSlug = rslug;
 
-    const transpiled = transpileScreenRN(s.code, s.componentName);
-    if (transpiled && !opts.referenceOnly) {
-      files[`components/screens/${s.componentName}.tsx`] = transpiled.code;
+    const engineRn = rnMap?.byName?.[String(s.name).toLowerCase()];
+    if (engineRn) {
+      // True-native: the engine's RN rewrite is self-contained — use it directly.
+      files[`components/screens/${s.componentName}.tsx`] = engineRn.includes("export default") ? engineRn : `${engineRn}\nexport default ${s.componentName};\n`;
+      files[`app/(tabs)/${rslug}.tsx`] = `import ${s.componentName} from "@/components/screens/${s.componentName}";\nexport default ${s.componentName};\n`;
+    } else if (!opts.referenceOnly && transpileScreenRN(s.code, s.componentName)) {
+      // Fallback: local best-effort transpile.
+      files[`components/screens/${s.componentName}.tsx`] = transpileScreenRN(s.code, s.componentName).code;
       files[`app/(tabs)/${rslug}.tsx`] = `import ${s.componentName} from "@/components/screens/${s.componentName}";\nexport default ${s.componentName};\n`;
     } else {
       // Honest reference fallback (only when transpile impossible or --reference-only).

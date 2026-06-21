@@ -45,7 +45,7 @@ async function writeFiles(root, files) {
 export async function materializeProject(projectDir, { handoff, screens, surface, framework, flags = {} }) {
   const built = framework === "next"
     ? buildNextProject(handoff, screens, { name: flags.name, pm: flags.pm })
-    : buildExpoProject(handoff, screens, { name: flags.name, referenceOnly: flags["reference-only"] });
+    : await buildExpoProject(handoff, screens, { name: flags.name, referenceOnly: flags["reference-only"] });
   await writeFiles(projectDir, built.files);
   await writeProjectManifest(projectDir, { handoff, surface, framework, screens });
   await writeProjectContract(projectDir, { handoff, framework, routes: built.routes });

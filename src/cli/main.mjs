@@ -309,17 +309,34 @@ function handoffPathFor(ref) {
   return join(workspaceDirFor(ref), "handoff.zip");
 }
 
-async function installSkill(flags) {
+async function copySkillTo(base, flags = {}) {
   if (!existsSync(SKILL_SOURCE)) throw new Error(`Bundled skill missing: ${SKILL_SOURCE}`);
-  const base = flags.target
-    ? resolve(expandHome(flags.target))
-    : join(process.env.CODEX_HOME || join(process.env.HOME || ".", ".codex"), "skills");
   await assertSafeWritePath(base, flags, "skill target");
   const dest = join(base, "v1-design");
   await mkdir(base, { recursive: true });
   await cp(SKILL_SOURCE, dest, { recursive: true, force: true });
+  return dest;
+}
+
+async function installSkill(flags) {
+  const base = flags.target
+    ? resolve(expandHome(flags.target))
+    : join(process.env.CODEX_HOME || join(process.env.HOME || ".", ".codex"), "skills");
+  const dest = await copySkillTo(base, flags);
   console.log(`Installed v-1.design skill to ${dest}`);
   console.log(`Try: Use $v1-design to build this app from a v-1.design link.`);
+}
+
+/** Install the skill where Claude Code auto-loads it (~/.claude/skills), so the
+ *  SKILL.md "brain" loads by description on "use v1design to build X". */
+async function installClaudeSkill(flags = {}) {
+  const base = join(process.env.HOME || ".", ".claude", "skills");
+  try {
+    const dest = await copySkillTo(base, { ...flags, "allow-project-write": true });
+    console.log(`Installed v-1.design skill for Claude Code at ${dest}`);
+  } catch (e) {
+    console.log(`Could not install Claude Code skill: ${e instanceof Error ? e.message : e}`);
+  }
 }
 
 async function readText(file) {
@@ -358,6 +375,7 @@ async function configureCursor(flags = {}) {
 }
 
 async function runClaudeSetup() {
+  await installClaudeSkill();
   await new Promise((resolve) => {
     const child = spawn("claude", ["mcp", "add", "v1design", "--", "v1design-agent"], { stdio: "inherit" });
     child.on("error", () => {
@@ -379,6 +397,7 @@ async function connect(flags) {
   const configureAll = client === "all";
   const auto = client === "auto";
   if (configureAll || auto || client === "codex") await configureCodex();
+  if (configureAll || auto || client === "claude") await installClaudeSkill(flags);
   if (configureAll || client === "cursor") await configureCursor(flags);
   if (configureAll || client === "claude") await runClaudeSetup();
   console.log("v-1.design is connected. In your agent, say: Use $v1-design to build this app from <v-1.design link>.");
