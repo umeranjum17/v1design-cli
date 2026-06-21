@@ -19,10 +19,21 @@ Prefer the v1design MCP tools when available; otherwise use the CLI. Connect onc
 
 ## Step 1 — read the intent: an idea, or a specific design?
 - **Idea** ("a habit tracker", "a pet care app", "a landing like Linear but warmer") →
-  DISCOVER. Search the library agentically (several queries, broaden/narrow keywords),
-  pick the strongest **domain** match (not a tangential style match). Present a few
-  directions; pick yourself only if delegated.
-  - `v1design new "<idea>" --surface web|mobile`  or  `v1design library search "<idea>" --surface web --json`
+  DISCOVER hard before building. First reason about what a great version of this should
+  LOOK like — domain, audience, mood, and the nearest world-class references — then spawn
+  SEVERAL searches from different angles (the literal domain, adjacent domains, the
+  aesthetic/mood, and the closest well-known product), broadening and narrowing keywords.
+  Read the candidates, weigh them against that mental target, and DECIDE on the single
+  strongest fit yourself (present a few directions only when not delegated).
+  - `v1design library search "<idea>" --surface web --json` (run it a few times, varied
+    queries) → then `v1design new "<idea>" --surface web|mobile` or `v1design scaffold <ref>`.
+  - **No exact match? REVAMP the closest — do NOT regenerate.** If the library only has
+    tangential designs, take the CLOSEST one and revamp it toward the target: scaffold it,
+    then re-skin / remix / `vibe` it hard in Step 3 — `v1design remix <closest> <b>
+    --system <closest> --out <dir>`, `v1design vibe "<intent toward the real domain>" --in
+    <dir>`. The library is the asset; adapt what exists. Do NOT reach for `v1design create`
+    to generate a brand-new design from scratch — only create-new if there is genuinely
+    nothing in the neighborhood at all.
 - **Specific design** (URL / slug / "the one I picked") → resolve and build AS-IS.
   - `v1design new "<url|slug>"`  or  `v1design scaffold <ref>`
 - Infer surface: web → Next.js, mobile → Expo + React Native, unless the repo dictates.
