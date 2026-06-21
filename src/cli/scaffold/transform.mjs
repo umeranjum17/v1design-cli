@@ -47,6 +47,40 @@ function hasClientDirective(code) {
 }
 
 /**
+ * Full-bleed the artboard root so the screen owns the full viewport.
+ *
+ * The studio frames every web screen at a fixed artboard width (e.g.
+ * `width: 1440`) on its OUTERMOST container. Left as-is that makes the page a
+ * fixed-width block stuck to the left with a dead gutter on any wider screen —
+ * the single most common "this looks broken" defect. The screens are authored
+ * full-bleed underneath (nav / colour bands / footer carry the background edge
+ * to edge; inner content already centres via `maxWidth` + `margin: 0 auto`), so
+ * the only thing needed is to make that one root width fluid.
+ *
+ * Deterministic, no design judgement: only an artboard-scale width (>= 1000px)
+ * co-located with a `100vh` / `100dvh` height is converted to `100%`. Inner
+ * fixed widths (icons, cards, SVGs) and mobile phone-column widths (390–430)
+ * are never touched.
+ *
+ *   width: 1440            → width: "100%"
+ *   width: "1512px"        → width: "100%"
+ *   className "w-[1440px]" → "w-full"
+ */
+export function fullBleedRoot(code) {
+  const FIXED_W = /(?<![A-Za-z])width\s*:\s*(?:\d{4,}\b|["']\d{4,}px["'])/;
+  let out = String(code);
+  // Inline style objects that frame a full-height artboard.
+  out = out.replace(/style=\{\{([^{}]*)\}\}/g, (full, body) => {
+    const fullHeight = /(?:min-?height|height)\s*:\s*["']100d?vh["']/i.test(body);
+    if (!fullHeight || !FIXED_W.test(body)) return full;
+    return "style={{" + body.replace(new RegExp(FIXED_W.source, "g"), 'width: "100%"') + "}}";
+  });
+  // Tailwind artboard frame: w-[NNNNpx] (artboard scale) → w-full.
+  out = out.replace(/\bw-\[\d{4,}px\]/g, "w-full");
+  return out;
+}
+
+/**
  * Transform one screen for the web (Next App Router).
  * Returns the file contents for components/screens/<Name>.tsx.
  */
@@ -65,10 +99,14 @@ export function transformScreenWeb(code, screen) {
   const name = screen.componentName || "Screen";
   out = out.replace(/export default function\s+Screen\b/, `export default function ${name}`);
 
-  // NOTE: design adaptations (full-bleed/full-width, nav-link wiring, font
-  // fallback, contrast, tab-bar polish) are deliberately NOT hardcoded here —
-  // they're per-project judgments the agent makes per the skill, enforced by the
-  // gate. See skills/v1-design (Polish & port) + verify/grade.
+  // Full-viewport: neutralise the fixed studio artboard width so the app is
+  // full-bleed by default (deterministic — the #1 "looks broken on wide screens"
+  // defect, fixed here so no scaffold ever ships a left-stuck 1440 block).
+  out = fullBleedRoot(out);
+
+  // NOTE: remaining design adaptations (nav-link wiring, font fallback, contrast,
+  // tab-bar polish) stay per-project judgments the agent makes per the skill,
+  // enforced by the gate. See skills/v1-design (Polish & port) + verify/grade.
   return out.endsWith("\n") ? out : out + "\n";
 }
 
