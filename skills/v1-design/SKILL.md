@@ -64,6 +64,27 @@ the raw material and decide. Prefer **pulling a proven look over inventing one.*
   RETRIEVAL problem first (search the library, pull the closest), generation only as a
   last resort. Keep it on-system: edit the tokens, not 200 inline styles.
 
+### Re-skin COMPLETELY — no element left on the old palette (hard gate)
+A recolor / `vibe` is only done when the ENTIRE app is on the new palette — every
+screen, the shadows/glows, the logo, and any canvas / WebGL / 3D scene. A half-teal,
+half-old result is a hard fail. After any token change:
+1. **Hunt down hardcoded colours.** `vibe` and token swaps only touch `--token`
+   declarations; screens often hardcode the old brand in literals — `rgb(91 43 227 / .18)`
+   glows, `#5b2be3` washes, `oklch(... 288)` shadows. Grep every screen for hex / `rgb(` /
+   `oklch(` NOT inside `var(...)`, and replace brand-derived ones with token-derived colour
+   so they follow the theme: `color-mix(in oklch, var(--primary) 18%, transparent)` instead
+   of a baked rgba. Verify the OLD hue (e.g. 288/purple) survives nowhere.
+2. **Canvas / 3D must read the tokens.** A Three.js / WebGL scene must pull its colours
+   from the CSS custom properties (read `getComputedStyle(document.documentElement)
+   .getPropertyValue('--primary')`), not bake hex — otherwise it stays the old colour.
+3. **Swap the logo to a matching variant.** The mark must suit the new palette — pull a
+   theme-matched logo variant from the library/engine (`v1design colors get` exposes the
+   palette; logo variants are pullable too) rather than leaving the old one. At minimum the
+   mark fills via `var(--primary)`; prefer a real on-brand variant.
+4. **Verify across the whole app at multiple widths + light/dark.** Open every route, the
+   toggle, and the hero scene; confirm one cohesive hue family. Default REJECT if any patch
+   of the old colour remains.
+
 ## Step 3 — PORT & POLISH to best standards (the real job — be harsh)
 Default verdict is **REJECT**. If ANYTHING is even slightly subpar, fix it, then
 re-check. Hold every one of these — they are not optional.

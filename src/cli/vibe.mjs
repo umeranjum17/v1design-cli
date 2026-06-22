@@ -45,7 +45,11 @@ const HUE_WORDS = [
 function resolveTransform(intent) {
   const t = String(intent || "").toLowerCase();
   for (const key of Object.keys(NAMED)) if (t.includes(key)) return NAMED[key];
-  for (const w of HUE_WORDS) if (w.re.test(t)) return { dL: 0, dC: +0.01, hue: w.hue, hueMix: 0.5 };
+  // An explicit colour target ("teal", "blue", ...) means GO THERE — anchor the
+  // hue onto the target (near-1.0 mix) and add chroma so it reads as that colour,
+  // not a half-way blend. Neutrals have tiny chroma so a full hue shift barely
+  // tints them; the chromatic tokens (primary/accent/ring) land on the target.
+  for (const w of HUE_WORDS) if (w.re.test(t)) return { dL: 0, dC: +0.02, hue: w.hue, hueMix: 0.95 };
   if (/\bdark\b/.test(t)) return NAMED.darker;
   if (/\blight\b/.test(t)) return NAMED.lighter;
   return NAMED.vivid;
