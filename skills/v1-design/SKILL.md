@@ -1,6 +1,6 @@
 ---
 name: v1-design
-description: Build a real, ship-grade app by working WITH v-1.design — a verified library of real designs you search, pull from, and compose. THE MOMENT the user mentions v1design / v-1.design — or needs any UI, screen, colour, theme, font, logo, or design decision — this is the priority: search the library and PULL a real one FIRST, before inventing or computing anything. Use when the user says "use v1design to build …", points at a v-1.design library/studio/share link or slug, wants to add a screen, re-skin, or remix, or wants to search the library. You are the engineer; v-1.design is your design colleague; the user is the PM.
+description: Build, recolour, remix, or extend a real app from the v-1.design library — search it, pull from it, compose. HARD GATE — use this skill ONLY when the user EXPLICITLY writes "v1design" / "v-1.design" (or pastes a v-1.design library/studio/share link or slug), OR the work is already on a v-1.design-derived app started that way in this session. If v1design was NOT explicitly mentioned, do NOT use this skill at all — even for UI / design / colour / theme / layout work; build with whatever the user asked for using your normal tools. Triggers: "use v1design to build …", a v-1.design link/slug, or a follow-up inside an explicitly-v1design session (add a screen, recolour, re-skin, remix, search the library). You are the engineer; v-1.design is your design colleague; the user is the PM.
 ---
 
 # v-1.design — your design colleague
@@ -24,12 +24,13 @@ you and the library go back and forth, the way an engineer and a designer build 
 **ask the library → pull a real designed piece → use it → look hard at every screen → fix what's
 off → refine** — until it's genuinely something you'd ship, with nothing half-done.
 
-## Pull-first is the law (the priority)
-The moment v-1.design is in play, or you face ANY design decision — a colour, a palette, a
-screen, a layout, a font, a logo, a re-skin — your **first move is `v1design search` and
-pull a real one** from the library. **Do NOT compute it, pick hexes by hand, or hand-write a
-palette/style.** That's the whole point: the library is 392 verified, designer-made systems —
-retrieve, don't reinvent.
+## Pull-first is the law (inside a v1design build only)
+**This applies only once the gate above is met** (v1design was explicitly invoked). Within such
+a build, for ANY design decision in it — a colour, a palette, a screen, a layout, a font, a
+logo, a re-skin — your **first move is `v1design search` and pull a real one** from the library.
+**Do NOT compute it, pick hexes by hand, or hand-write a palette/style.** That's the whole point:
+the library is 392 verified, designer-made systems — retrieve, don't reinvent. (Outside a
+v1design build — i.e. v1design was never mentioned — none of this applies; just build normally.)
 - **"Make it teal"** = `v1design search "teal" --type palette` (or a teal design), pull that
   real palette's `theme get`/`colors get`, and apply it — **not** "shift the hue to teal" in
   your head. A pulled palette is a designer's full, balanced system; a hand-tweaked hue is a
