@@ -39,6 +39,7 @@ Usage:
   v1design status
   v1design logout
   v1design create "brief" [--target web|mobile|both] [--wait] [--json]
+  v1design search "fintech dashboard" [--type design|screen|palette|font|component] [--surface web|mobile] [--limit 12]
   v1design library search "book app" [--surface web|mobile] [--json] [--limit 8]
   v1design library suggest "book app" [--surface web|mobile] [--limit 5] [--open] [--json]
   v1design designs list [--json]
@@ -448,6 +449,40 @@ async function searchLibrary(query, flags) {
   }
 }
 
+// Rock-solid engine-backed search over EVERY entity in the verified library
+// (designs, screens, palettes, fonts, components). The agent's primary discovery
+// verb: search, pull the handle, mix and match. Falls back to the card search if
+// the engine has no /api/search yet.
+async function searchEngine(query, flags) {
+  const q = String(query || "").trim();
+  if (!q) throw new Error('Usage: v1design search "<what you need>" [--type design|screen|palette|font|component] [--surface web|mobile] [--limit N]');
+  const params = new URLSearchParams({ q });
+  if (flags.type) params.set("type", String(flags.type));
+  if (flags.surface) params.set("surface", String(flags.surface));
+  if (flags.limit) params.set("limit", String(flags.limit));
+  let out;
+  try {
+    out = await request("GET", `/api/search?${params.toString()}`);
+  } catch {
+    if (flags.__return) return { query: q, count: 0, results: [] };
+    return searchLibrary(q, flags); // older engine without /api/search
+  }
+  if (flags.__return) return out;
+  if (flags.json) { printJson(out); return; }
+  const results = out.results || [];
+  if (!results.length) { console.log(`No matches for "${q}".`); return; }
+  console.log(`${out.count} matches for "${q}" — top ${results.length} (pull any with its handle):`);
+  for (const r of results) {
+    const what = r.type === "design" ? r.appName
+      : r.type === "screen" ? `${r.design} · ${r.screen} (${r.surface})`
+      : r.type === "palette" ? `${r.design} palette · ${r.colour} (${r.harmony || ""})`
+      : r.type === "font" ? `${r.design} fonts · ${r.display || ""}/${r.body || ""}`
+      : `${r.design} · ${r.component}`;
+    console.log(`- [${r.type}] ${what}`);
+    console.log(`    ${r.handle}`);
+  }
+}
+
 function libraryUrl(slug) {
   return `${WEB_URL}/library/${encodeURIComponent(slug)}`;
 }
@@ -640,6 +675,7 @@ async function main() {
   if (cmd === "status" || cmd === "auth:status") { await status(); return; }
   if (cmd === "logout" || cmd === "auth:logout") { await logout(); return; }
   if (cmd === "create") { await createDesign([sub, ...rest].filter(Boolean).join(" "), flags); return; }
+  if (cmd === "search") { await searchEngine([sub, ...rest].filter(Boolean).join(" "), flags); return; }
   if (cmd === "pull") { await pull(sub, flags); return; }
   if (cmd === "skill" && sub === "install") { await installSkill(flags); return; }
   if (cmd === "library" && (!sub || sub === "help" || sub === "--help" || sub === "-h")) { libraryUsage(); return; }

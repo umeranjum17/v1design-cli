@@ -46,10 +46,18 @@ Prefer the v1design MCP tools when available; otherwise use the CLI. Connect onc
   (a fixed-width frame, unwired nav, a fallback font, a plain tab bar). Step 3 is where
   YOU make it awesome — do not skip it and do not declare done on the raw scaffold.
 
-## The library is a RAG — pull anything, compose it yourself
-Every design in v-1.design (yours, anyone's, any library entry) is fully pullable and
-mixable. YOU do the composition — there are no magic deterministic transforms; you pull
-the raw material and decide. Prefer **pulling a proven look over inventing one.**
+## The library is a RAG — search everything, pull anything, compose it yourself
+Every design in v-1.design (yours, anyone's, any library entry) is fully searchable,
+pullable, and mixable. YOU do the composition — there are no magic deterministic
+transforms; you search the corpus, pull the raw material, and decide. Prefer **pulling a
+proven look over inventing one.** Keep searching → pulling → mixing.
+- **SEARCH everything first (the primary verb):** `v1design search "<what you need>"` /
+  the `search` tool — one rock-solid index over the WHOLE verified library: designs,
+  individual **screens**, **palettes** (by colour, e.g. "teal"), **fonts**, and
+  **components**. Filter with `--type design|screen|palette|font|component` and
+  `--surface web|mobile`. It returns ranked **handles** (`slug`, `slug/Screen`,
+  `slug#palette`, …) — search several angles, then pull what fits. Don't one-shot: keep
+  searching and pulling more relevant pieces as the design takes shape.
 - Pull tokens: `v1design tokens get <ref>` / `get_tokens` — semantic light+dark, primitive
   ramps, radius, typography/fonts, hex.
 - Pull a whole theme: `v1design theme get <ref> --css` / `get_theme` — the literal

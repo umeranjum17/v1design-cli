@@ -300,6 +300,37 @@ export function buildServer(client: EngineHttpClient): McpServer {
     return text(`Library${scope} matches for "${query || "all"}":\n${rows.join("\n")}`);
   });
 
+  // Rock-solid search over EVERY entity in the verified library — designs, screens,
+  // palettes (by colour), fonts, components. The library as a RAG: keep searching,
+  // pull handles, mix and match. Pull a result with get_design / get_screen_code /
+  // get_tokens / get_theme using its handle (slug, slug/Screen, slug#palette, …).
+  server.registerTool("search", {
+    description: "Search the WHOLE verified v-1.design library at any granularity — designs, individual screens, palettes (by colour like 'teal'), fonts, and components. Returns ranked handles you then pull (get_design/get_screen_code/get_tokens) and mix-and-match. Keep searching + pulling; treat 'what should this look like?' as retrieval. type filters to one kind; surface to web|mobile.",
+    inputSchema: { q: z.string(), type: z.enum(["design", "screen", "palette", "font", "component"]).optional(), surface: z.enum(["web", "mobile"]).optional(), limit: z.number().int().min(1).max(50).optional() },
+  }, async ({ q, type, surface, limit }) => {
+    const params = new URLSearchParams({ q });
+    if (type) params.set("type", type);
+    if (surface) params.set("surface", surface);
+    params.set("limit", String(limit ?? 12));
+    let res: any = null;
+    try { res = await client.json("GET", `/api/search?${params.toString()}`); } catch { /* older engine */ }
+    if (!res || !res.results) {
+      const j = await client.json("GET", "/api/library");
+      const m = searchLibraryCards(j.designs ?? [], q, { surface }).slice(0, limit ?? 12);
+      return text(m.length ? m.map((d: any) => `- [design] ${d.appName} (${d.slug})`).join("\n") : `No matches for "${q}".`);
+    }
+    if (!res.results.length) return text(`No matches for "${q}".`);
+    const rows = res.results.map((r: any) => {
+      const what = r.type === "design" ? r.appName
+        : r.type === "screen" ? `${r.design} · ${r.screen} (${r.surface})`
+        : r.type === "palette" ? `${r.design} palette · ${r.colour} (${r.harmony ?? ""})`
+        : r.type === "font" ? `${r.design} fonts · ${r.display ?? ""}/${r.body ?? ""}`
+        : `${r.design} · ${r.component}`;
+      return `- [${r.type}] ${what}\n    pull: ${r.handle}`;
+    });
+    return text(`${res.count} matches for "${q}" — top ${res.results.length}:\n${rows.join("\n")}`);
+  });
+
   server.registerTool("list_designs", { description: "List the designs on your v-1.design account." }, async () => {
     const j = await client.json("GET", "/designs");
     const rows = (j.designs ?? []).map((d: any) => {
