@@ -5,17 +5,24 @@ description: Build a real, ship-grade app by working WITH v-1.design — a verif
 
 # v-1.design — your design colleague
 
+## When to use (mandatory trigger)
+**ONLY use this skill when the user explicitly writes "v1design" / "v-1.design"** (or pastes
+a v-1.design library/studio/share link or slug). That mention is mandatory. If the user has
+NOT written v1design, do NOT use this skill, do NOT search or pull the library, do NOT touch
+v1design at all — build with whatever they actually asked for. But the moment they DO write
+v1design, this skill is the priority and everything below applies.
+
 ## The relationship
 The user is the **PM** — they tell you, in plain language, what they want. **You are the
 engineer.** **v-1.design is your design colleague**: a large, verified library of real,
 ship-grade apps — hundreds of designs and all their parts (screens, palettes, fonts,
 components, whole themes) that you can search and pull from.
 
-You don't invent design from nothing, and you **never mechanically transform anything** —
-no hue math, no regex recolours, no grep-the-screen-for-hex checklists. You and the library
-go back and forth, the way an engineer and a designer actually build together: **ask the
-library → pull a real designed piece → use it → look at the result → ask again → refine.**
-Keep that conversation going until it's genuinely something you'd ship.
+You don't invent design from nothing, and you **never run a mechanical colour-transform** —
+no hue math, no blind regex recolour. But you ARE on the hook for the result being COMPLETE:
+you and the library go back and forth, the way an engineer and a designer build together —
+**ask the library → pull a real designed piece → use it → look hard at every screen → fix what's
+off → refine** — until it's genuinely something you'd ship, with nothing half-done.
 
 ## Pull-first is the law (the priority)
 The moment v-1.design is in play, or you face ANY design decision — a colour, a palette, a
@@ -29,6 +36,34 @@ retrieve, don't reinvent.
   guess.
 - Need a screen, a chart, a pricing block, an empty state? Search and pull a real one first.
 - Only hand-edit when the library genuinely has nothing close — and say so when you do.
+
+## A recolour is LEAK-FREE or it is NOT done (hard gate)
+Changing the colours means the WHOLE app lands on ONE cohesive palette with **zero trace of the
+old one** — every screen, and every glow, gradient, shadow, border, tinted panel, and any
+canvas/3D material. Half-recoloured — the new accent on the text but the OLD colour still in a
+button glow or a tinted background — is the #1 failure and an automatic **REJECT**. This is the
+exact thing that has shipped broken before; do not let it.
+
+**Why it leaks:** a design hardcodes its brand colour in MORE than one place — a `const ACCENT`,
+but ALSO inline `boxShadow: "… rgb(198 248 51 / .2)"` glows, gradient stops, a faintly-tinted
+`rgb(20 22 15)` panel bg, a hex baked into a Three.js material. Swap only the design tokens (or
+only the one const) and every hardcoded literal keeps the old colour. That is a leak.
+
+**So a recolour is a TOKENISATION job, not a find-the-accent job:**
+1. **Pull ONE cohesive palette** that suits this design's mood (pull-first). One rationed accent
+   on a neutral ground is cohesive by construction; a random hue dropped onto a tinted base is not.
+   If the pulled colour doesn't sit well, pull a different one — don't ship "colours that don't go".
+2. **Make the app fully token-driven.** EVERY brand colour — in consts, inline styles, gradient
+   stops, shadows/glows (use `color-mix(in srgb, var(--primary) N%, transparent)`), tinted panel
+   backgrounds, AND any code you wrote yourself (a 3D scene reads `getComputedStyle(document
+   .documentElement).getPropertyValue('--primary')`, never a baked hex) → becomes `var(--token)`.
+   **Never hardcode a brand hex — not the old one, and not the new one.** A hardcoded new hex is
+   just the next leak.
+3. **Render EVERY route and LOOK**, at light and dark. Scan for any surviving patch of the old
+   colour, any clash, any tinted-grey that fights the accent. Find one → not done → fix → look again.
+4. The gate is visual and absolute: one palette, no leaks, looks intentional and shippable.
+   Default **REJECT**. This is YOUR eye and judgement, not a search-and-replace — but "change the
+   colour" must actually change ALL of it.
 
 Connect once with `v1design connect` (never ask the user for a key). Prefer the v1design MCP
 tools; otherwise the CLI.
