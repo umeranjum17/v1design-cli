@@ -137,6 +137,23 @@ design language.** A bolted-on graft is a fail. What makes a remix fabulous:
 - **The bar:** render it beside the existing screens — it must read as ONE product (same voice,
   same rationed accent, a deliberate new surface). If it feels even slightly foreign, not done.
 
+**What a jury rejects (so catch it first — these sank real remixes):**
+- **Flooding the accent.** Count how sparingly the host uses its accent — usually 3–4 small,
+  precious moments per screen (a CTA, a hairline, one number); the rest is neutral. MATCH that
+  rationing. A giant glowing gradient + every chart, dial and sparkline lit at once cheapens the
+  accent and instantly reads non-native. Most of your screen must be neutral.
+- **Density / composition drift.** If the host is airy and cinematic (one big idea per band,
+  generous whitespace), do NOT cram a dense multi-module dashboard — re-space the donor's structure
+  to the host's rhythm so it feels like the host's OTHER pages, not a generic dashboard.
+- **Layout defects.** RENDER the page and scroll the WHOLE thing. Duplicated/ghosted components (a
+  scrubber or card rendered twice), content clipped at a panel edge, overlapping/colliding boxes,
+  misaligned columns = instant reject. These hide below the fold — you must actually look.
+- **Foreign type or motifs.** Use ONLY the host's type treatments and motifs — no italic-serif
+  flourish if the host is bold-sans + mono; no radial gauge dials if the host's language is
+  horizontal waveforms. Re-express the donor's data in the HOST's own visual motifs.
+- **Status/categorical hues:** prefer tints within the host's palette family + neutrals; add a
+  foreign hue (green ok / red bad) only if essential, and keep it tiny.
+
 Tools: `v1design screens get <ref> <name>` lifts a donor screen; `v1design compose <ref> --add
 "<Name>"` generates one already in the host's system.
 
