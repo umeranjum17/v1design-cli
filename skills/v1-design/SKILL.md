@@ -65,6 +65,14 @@ only the one const) and every hardcoded literal keeps the old colour. That is a 
    Default **REJECT**. This is YOUR eye and judgement, not a search-and-replace — but "change the
    colour" must actually change ALL of it.
 
+**The one exception — categorical / third-party colours.** Colours that encode IDENTITY or DATA
+(a provider's real brand colour like Perplexity-teal, chart-series colours, status red/green) are
+NOT the app's accent — don't collapse them to `var(--primary)` (that destroys the distinction).
+Keep them distinct, BUT: make sure they harmonise with the new palette, and that none of them reads
+as *leftover old brand* — if a categorical colour clashes or echoes the very colour you just removed,
+re-pick that categorical set. (You can still route the "self"/primary item — e.g. your own product
+in a comparison — to `var(--primary)`.)
+
 Connect once with `v1design connect` (never ask the user for a key). Prefer the v1design MCP
 tools; otherwise the CLI.
 
