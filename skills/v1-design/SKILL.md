@@ -117,11 +117,28 @@ rest of the way with normal engineering judgment (look at it, fix it, look again
 the WOW verdict. Use them as a second opinion, and keep iterating with the library until it's
 right. Done = a design you'd actually ship.
 
-## Adding to an existing app (stay on-system)
-Pull a fitting screen (`v1design screens get <ref> <name>`) or generate one in the app's own
-system (`v1design compose <ref> --add "<Name>"`), wire it into the existing nav, and reuse the
-shared chrome — match the established tokens/fonts/patterns. Only ADD; don't disturb the other
-screens or the design system.
+## Remix a screen in — it must look NATIVE, not grafted (the heart of v1design)
+The most powerful move: pull a screen from a DIFFERENT design and incorporate it so it looks
+like it was ALWAYS part of this app. A remix keeps the donor's **structure/idea** (its layout,
+its signature element — a chart, a ribbon canvas, a grid) and re-executes it **100% in the host's
+design language.** A bolted-on graft is a fail. What makes a remix fabulous:
+- **Adopt the host's ENTIRE system, not just colours** — its tokens, its real fonts, its
+  nav/chrome + footer, its spacing/radius/column width, its component patterns and visual motifs
+  (reuse the host's own card / waveform / badge components). Strip the donor's shell (its sidebar,
+  its nav) and wrap the content in the host's chrome.
+- **No donor design language leaks** — same leak-free rule as a recolour: every donor colour →
+  `var(--token)`/`color-mix` (including hex baked in a donor canvas/3D — read it via
+  getComputedStyle); no donor fonts, no donor chrome, no donor spacing feel.
+- **Transform the content to the HOST's domain** — re-author every label, number and copy line
+  into the host's world (audio app → tracks / plays / listening minutes, never the donor's
+  followers/lorem). Grep the served HTML for leftover donor-domain words.
+- **Wire it in** as a real route in the existing nav, reachable from every page; reuse the shared
+  chrome, don't fork it. Only ADD — don't disturb the other screens or the design system.
+- **The bar:** render it beside the existing screens — it must read as ONE product (same voice,
+  same rationed accent, a deliberate new surface). If it feels even slightly foreign, not done.
+
+Tools: `v1design screens get <ref> <name>` lifts a donor screen; `v1design compose <ref> --add
+"<Name>"` generates one already in the host's system.
 
 ## Boundaries
 Never copy private repos, `.env`, credentials, or engine internals into the app. Only edit the
