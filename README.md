@@ -51,6 +51,45 @@ v1design compare <refA> <refB> --surface web
 v1design screenshots <ref> --out ./shots
 ```
 
+## Explore designs with your own recipe
+
+`v1design explore` pulls a few library designs as inspiration **and** runs your **local
+recipe** — a folder of markdown that *you* own (`recipe.md` plus your own doctrine, jury,
+inspiration). The CLI ships **no design doctrine or workflow of its own**; what "explore"
+does is defined entirely by your recipe. It spends no engine credits.
+
+```bash
+v1design explore "an invoicing tool for freelancers"   # pull inspiration + run your recipe
+v1design recipe init                                    # scaffold a starter recipe to ./.v1design/recipe
+v1design recipe path                                    # show which recipe `explore` resolves
+```
+
+Recipe discovery order (first match wins): `--recipe <dir>` → `V1DESIGN_RECIPE_DIR` →
+nearest `./.v1design/recipe` → `~/.v1design/recipe`. Keep one at `~/.v1design/recipe` to make
+it available in every project. Bring your own — see **[RECIPE.md](./RECIPE.md)** for the format.
+
+## Find AI-slop in any UI
+
+Deterministic, local, **no account and no API key** — scan a repo, file, or directory for the
+tells that make AI-generated UIs all look the same (purple gradients, generic CTAs, placeholder
+data, glassmorphism, em-dash cadence, and more).
+
+```bash
+v1design detect ./src            # human report, non-zero exit if hard tells are found
+v1design detect ./src --json     # CI-friendly output
+v1design detect --tells          # list every rule
+```
+
+## Generate a new design with the engine forge (studio)
+
+```bash
+# the v-1.design engine generates a finished design — this SPENDS CREDITS, so it needs --yes
+v1design studio "a fintech dashboard" --yes
+```
+
+`v1design studio` is the hosted forge (was `v1design create`, which is now a deprecated alias).
+For "generate new designs" in general, prefer `explore` (your own recipe, no credits).
+
 You can also use the lower-level discovery + pull commands directly:
 
 ```bash
@@ -65,7 +104,7 @@ For a brand-new project, start with `library suggest`: it shows the top five mat
 
 Generated references default to `~/.v1design/workspace/<design-ref>`, for example `~/.v1design/workspace/aetra-a3e7c2b1/handoff.zip`. The CLI refuses to write inside a Git worktree unless `--allow-project-write` is passed, which keeps private repos read-only unless you deliberately choose one as the target app.
 
-Library search and suggestions are read-only discovery. Pulling artifacts, creating a new design, or editing an app should happen only after you explicitly ask the agent to use a chosen v-1.design reference in the project.
+Library search and suggestions are read-only discovery. Pulling artifacts, running the `studio` forge (which spends credits), or editing an app should happen only after you explicitly ask the agent to use a chosen v-1.design reference in the project.
 
 ## What This Package Contains
 
