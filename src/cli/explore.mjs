@@ -1,9 +1,8 @@
-// `v1design explore "<idea>"` — the recipe RUNNER. It does exactly two things and
-// knows NOTHING about what a recipe does: (1) pull some library designs as inspiration
-// for the idea, (2) discover the user's LOCAL recipe and hand it to the agent to run.
-// Every workflow decision — what to generate, how to judge it, whether anything is ever
-// published — lives in the user's own recipe `.md` files. This CLI ships no doctrine and
-// no workflow. No local recipe → just the library results.
+// `v1design explore "<idea>"` — TWO SEPARATE LANES, never blended:
+//   Lane A — pull from the v1design LIBRARY and explore the idea on those existing designs.
+//   Lane B — GENERATE FRESH from the user's LOCAL recipe (if one is present), on its own.
+// The lanes are independent on purpose: Lane A reuses what exists; Lane B creates new from the
+// recipe. The CLI does NOT feed Lane A's designs into Lane B, and ships no doctrine of its own.
 import { fetchLibrary } from "./lib/engine.mjs";
 import { resolveRecipe, readRecipe } from "./lib/recipe.mjs";
 
@@ -24,53 +23,64 @@ function rankCards(cards, idea, surface, limit) {
 
 function refLine(c) {
   const tags = (c.tags || []).slice(0, 6).join(", ");
-  return `- ${c.appName} (${c.slug})${c.category ? ` · ${c.category}` : ""}${tags ? ` · ${tags}` : ""}`;
+  return `  - ${c.appName} (${c.slug})${c.category ? ` · ${c.category}` : ""}${tags ? ` · ${tags}` : ""}`;
 }
 
-/** Assemble the explore output (pure — shared by the CLI and the MCP `explore` tool). */
+/** Assemble the two-lane explore output (pure — shared by the CLI and the MCP `explore` tool). */
 export async function assembleExploration(idea, flags = {}) {
   const surface = flags.surface || null;
-  const pulled = Number(flags.pulled ?? 3);
+  const pulled = Number(flags.pulled ?? 4);
   const recipe = resolveRecipe(flags);
 
+  // Lane A — the library.
   let cards = [];
-  try { cards = await fetchLibrary(); } catch { /* offline → no pulled refs */ }
+  try { cards = await fetchLibrary(); } catch { /* offline → no library lane */ }
   const refs = rankCards(cards, idea, surface, pulled);
-  const refsBlock = refs.map(refLine).join("\n") || "  (no matches — try broader words)";
+  const laneA = refs.map(refLine).join("\n") || "  (no library matches — try broader words)";
 
-  if (!recipe.found) {
-    const text =
-`v1design explore — "${idea}"  (no local recipe found)
+  // Lane B — the local recipe.
+  let laneB;
+  if (recipe.found) {
+    const { manifest, files } = await readRecipe(recipe.dir);
+    laneB =
+`  recipe: ${recipe.dir}  (via ${recipe.source})
+  files: recipe.md${files.length ? `, ${files.join(", ")}` : ""}
 
-Library designs for "${idea}" (${refs.length}):
-${refsBlock}
+  Run this recipe to GENERATE BRAND-NEW designs for "${idea}" — on its own, from the
+  recipe's own doctrine/inspiration. Do NOT reuse Lane A's designs as input here.
+  Read recipe.md (and its referenced files in ${recipe.dir}) and follow it.
 
-There's no local recipe, so there's nothing to run beyond the library results above.
-  • Add your own:  v1design recipe init   (then edit ./.v1design/recipe/)
-  • Or point V1DESIGN_RECIPE_DIR at your recipe folder.
-See RECIPE.md.`;
-    return { text, json: { idea, surface, recipe: null, pulled: refs.map((c) => c.slug) } };
+  ────────────────────────── recipe.md ──────────────────────────
+${manifest.trim().split("\n").map((l) => "  " + l).join("\n")}
+  ────────────────────────────────────────────────────────────────`;
+  } else {
+    laneB =
+`  No local recipe found — Lane B (fresh generation) is unavailable here.
+  Add one:  v1design recipe init   (or set V1DESIGN_RECIPE_DIR). See RECIPE.md.`;
   }
 
-  const { manifest, files } = await readRecipe(recipe.dir);
   const text =
 `v1design explore — "${idea}"
-recipe: ${recipe.dir}  (via ${recipe.source})
-files: recipe.md${files.length ? `, ${files.join(", ")}` : ""}
 
-Library designs pulled as inspiration for "${idea}" (${refs.length}):
-${refsBlock}
+TWO SEPARATE LANES. Keep them apart — never blend Lane A into Lane B. Deliver BOTH so the
+user can compare: the idea explored on EXISTING library designs, and BRAND-NEW designs from
+the recipe.
 
-Now run YOUR recipe: read recipe.md (and its referenced files in ${recipe.dir}) and
-follow it for "${idea}", using the pulled designs above as inspiration. The recipe
-defines everything that happens next — this CLI ships no doctrine or workflow of its own.
+━━━ LANE A · explore your idea on the LIBRARY (${refs.length} existing design${refs.length === 1 ? "" : "s"}) ━━━
+${laneA}
+  → Pull any of these and adapt "${idea}" onto it — its system, screens, palette, components.
+    This lane REUSES what already exists (pull/remix), it does NOT generate anything new.
 
-────────────────────────── recipe.md ──────────────────────────
-${manifest.trim()}
-────────────────────────────────────────────────────────────────`;
+━━━ LANE B · GENERATE FRESH from your recipe ━━━
+${laneB}`;
+
   return {
     text,
-    json: { idea, surface, recipe: { dir: recipe.dir, source: recipe.source, files: ["recipe.md", ...files] }, pulled: refs.map((c) => c.slug) },
+    json: {
+      idea, surface,
+      laneA: { source: "library", designs: refs.map((c) => c.slug) },
+      laneB: recipe.found ? { source: "recipe", dir: recipe.dir, recipeSource: recipe.source } : null,
+    },
   };
 }
 

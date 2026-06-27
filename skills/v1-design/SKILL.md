@@ -16,12 +16,16 @@ v1design, this skill is the priority and everything below applies.
 This CLI is a **library + a recipe RUNNER**. Three distinct things:
 1. **Search / pull** — `v1design search` / `library` / `designs get` / `screens get` /
    `theme|tokens|colors get`. Free, read-only, always fine (incl. the user's OWN designs).
-2. **Explore (run YOUR recipe)** — `v1design explore "<idea>"`. The DEFAULT when the user says
-   "explore designs / generate new ones". It pulls a few library designs as inspiration AND
-   discovers the user's LOCAL recipe (`./.v1design/recipe`, `~/.v1design/recipe`, or
-   `V1DESIGN_RECIPE_DIR`) and hands it to you to run. **What it does is defined entirely by that
-   recipe** — the CLI ships no doctrine or workflow of its own. It spends no engine credits. No
-   recipe? You just get the library results; `v1design recipe init` scaffolds a starter.
+2. **Explore — TWO SEPARATE LANES** — `v1design explore "<idea>"`. The DEFAULT for "explore
+   designs / generate new ones". It returns TWO lanes and you must deliver BOTH, kept apart
+   (never blend one into the other):
+   - **Lane A — from the LIBRARY**: existing v1design library designs matching the idea. Pull/adapt
+     the idea onto them (reuse what already exists; remix). Does NOT generate anything new.
+   - **Lane B — FRESH from the recipe**: run the user's LOCAL recipe (discovered at
+     `./.v1design/recipe` → `~/.v1design/recipe` → `V1DESIGN_RECIPE_DIR`) to GENERATE brand-new
+     designs for the idea, **on its own** — do NOT feed Lane A's designs in. No recipe → Lane B is
+     unavailable; `v1design recipe init` scaffolds one.
+   Spends no engine credits; the CLI ships no doctrine. Present A and B separately so the user compares.
 3. **Studio forge (engine, spends credits)** — `v1design studio "<brief>" --yes` (was
    `v1design create`) and `v1design compose`. GENERATE on the engine and SPEND CREDITS; run ONLY
    on an explicit "studio/forge" ask (`--yes`; MCP tools require `confirm:true`).

@@ -14,7 +14,7 @@ const INSTRUCTIONS = `v-1.design is a design engine ("the forge") that generates
 
 HARD RULE — LIBRARY-FIRST; THREE DISTINCT INTENTS, don't conflate them:
 1. SEARCH / PULL — search_library / search, then get_design / get_screen_code / get_tokens / get_theme / get_colors / list_designs. Always fine, free.
-2. EXPLORE — to "explore designs for an idea / generate new ones", use the explore tool. It pulls a few library designs as inspiration AND hands you the user's LOCAL recipe to run. What it does is defined ENTIRELY by that recipe — the CLI ships no doctrine or workflow. It spends NO engine credits. This is the default for "generate new designs".
+2. EXPLORE — for "explore designs / generate new ones", use the explore tool. It returns TWO SEPARATE LANES and you must deliver BOTH without blending them: Lane A = existing v1design LIBRARY designs matching the idea (pull/adapt the idea onto them — reuse); Lane B = run the user's LOCAL recipe to GENERATE brand-new designs on its own (do NOT feed Lane A in). Spends NO engine credits. The default for "generate new designs".
 3. STUDIO (the engine forge) — create_studio_design / add_screen GENERATE new work on the engine and SPEND CREDITS. Do NOT call them unless the user EXPLICITLY asked for the "studio" forge; both require confirm:true.
 When in doubt: search/pull or explore — never studio.
 
@@ -406,7 +406,7 @@ export function buildServer(client: EngineHttpClient): McpServer {
   // the user's LOCAL recipe to run. Knows NOTHING about what the recipe does. No engine
   // credits. The default for "generate new designs / show me options".
   server.registerTool("explore", {
-    description: "Explore designs for an idea: pull a few library designs as inspiration AND return the user's LOCAL recipe to run. What it does is defined ENTIRELY by that recipe — the CLI ships no doctrine or workflow. The DEFAULT for 'generate new designs / show me options'. Spends NO engine credits. No local recipe → just the library results + how to add one. Then YOU read recipe.md and follow it.",
+    description: "Explore designs for an idea — returns TWO SEPARATE LANES (deliver both, never blend): Lane A = existing v1design LIBRARY designs matching the idea (pull/adapt the idea onto them, reuse); Lane B = the user's LOCAL recipe to GENERATE brand-new designs on its own (do not feed Lane A in). The DEFAULT for 'generate new designs / show me options'. Spends NO engine credits. No local recipe → only Lane A + how to add a recipe.",
     inputSchema: { idea: z.string().min(1), surface: z.enum(["web", "mobile"]).optional(), pulled: z.number().int().min(0).max(12).optional(), recipe: z.string().optional().describe("path to a recipe dir; else discovered via V1DESIGN_RECIPE_DIR → ./.v1design/recipe → ~/.v1design/recipe") },
   }, async ({ idea, surface, pulled, recipe }) => {
     const { assembleExploration } = await import("../cli/explore.mjs");
