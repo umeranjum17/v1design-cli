@@ -12,9 +12,9 @@ import { z } from "zod";
 
 const INSTRUCTIONS = `v-1.design is a design engine ("the forge") that generates on-brand app UI — real React/TSX screens + a shadcn/Tailwind design system (globals.css) + a DESIGN.md.
 
-HARD RULE — LIBRARY-FIRST; FOUR DISTINCT INTENTS, don't conflate them:
+HARD RULE — LIBRARY-FIRST; THREE DISTINCT INTENTS, don't conflate them:
 1. SEARCH / PULL — search_library / search, then get_design / get_screen_code / get_tokens / get_theme / get_colors / list_designs. Always fine, free.
-2. EXPLORE — to "explore designs for an idea / generate new ones", use the explore tool. It pulls library designs as inspiration AND hands you the user's LOCAL recipe to generate fresh concepts (jury-vetted, concept-first, NO seeding). It spends NO engine credits. This is the default for "generate new designs".
+2. EXPLORE — to "explore designs for an idea / generate new ones", use the explore tool. It pulls a few library designs as inspiration AND hands you the user's LOCAL recipe to run. What it does is defined ENTIRELY by that recipe — the CLI ships no doctrine or workflow. It spends NO engine credits. This is the default for "generate new designs".
 3. STUDIO (the engine forge) — create_studio_design / add_screen GENERATE new work on the engine and SPEND CREDITS. Do NOT call them unless the user EXPLICITLY asked for the "studio" forge; both require confirm:true.
 When in doubt: search/pull or explore — never studio.
 
@@ -402,15 +402,15 @@ export function buildServer(client: EngineHttpClient): McpServer {
     return text(`${note}\n${urlLine}\n\`\`\`tsx\n${s.code}\n\`\`\``);
   });
 
-  // EXPLORE — the recipe RUNNER. Pulls library designs as inspiration AND returns the
-  // user's LOCAL recipe so the agent generates fresh concepts (jury-vetted, NO seeding).
-  // Spends NO engine credits. The default for "generate new designs / show me options".
+  // EXPLORE — the recipe RUNNER. Pulls a few library designs as inspiration AND returns
+  // the user's LOCAL recipe to run. Knows NOTHING about what the recipe does. No engine
+  // credits. The default for "generate new designs / show me options".
   server.registerTool("explore", {
-    description: "Explore designs for an idea: pull library designs as inspiration AND return the user's LOCAL recipe pipeline so you can generate fresh concepts (jury-vetted, concept-first, NO seeding). This is the DEFAULT for 'generate new designs / show me options'. Spends NO engine credits. If there's no local recipe it returns library exploration + how to add one. Then YOU run the returned recipe's explore flow and STOP before any seed/publish step.",
-    inputSchema: { idea: z.string().min(1), surface: z.enum(["web", "mobile"]).optional(), fresh: z.number().int().min(1).max(8).optional(), pulled: z.number().int().min(0).max(12).optional(), recipe: z.string().optional().describe("path to a recipe dir; else discovered via V1DESIGN_RECIPE_DIR → ./.v1design/recipe → ~/.v1design/recipe") },
-  }, async ({ idea, surface, fresh, pulled, recipe }) => {
+    description: "Explore designs for an idea: pull a few library designs as inspiration AND return the user's LOCAL recipe to run. What it does is defined ENTIRELY by that recipe — the CLI ships no doctrine or workflow. The DEFAULT for 'generate new designs / show me options'. Spends NO engine credits. No local recipe → just the library results + how to add one. Then YOU read recipe.md and follow it.",
+    inputSchema: { idea: z.string().min(1), surface: z.enum(["web", "mobile"]).optional(), pulled: z.number().int().min(0).max(12).optional(), recipe: z.string().optional().describe("path to a recipe dir; else discovered via V1DESIGN_RECIPE_DIR → ./.v1design/recipe → ~/.v1design/recipe") },
+  }, async ({ idea, surface, pulled, recipe }) => {
     const { assembleExploration } = await import("../cli/explore.mjs");
-    const r: any = await assembleExploration(idea, { surface, fresh, pulled, recipe });
+    const r: any = await assembleExploration(idea, { surface, pulled, recipe });
     return text(r.text);
   });
 

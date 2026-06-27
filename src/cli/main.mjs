@@ -39,8 +39,8 @@ Usage:
   v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills] [--allow-project-write]
   v1design status
   v1design logout
-Explore designs for an idea with YOUR local recipe (pull library inspiration + generate fresh; never seeds):
-  v1design explore "an idea" [--fresh N] [--pulled M] [--surface web|mobile] [--recipe <dir>] [--json]
+Explore designs for an idea using YOUR local recipe (pulls library inspiration, runs your recipe):
+  v1design explore "an idea" [--pulled M] [--surface web|mobile] [--recipe <dir>] [--json]
   v1design recipe init [--out <dir>] [--force]   # scaffold a sample recipe to ./.v1design/recipe
   v1design recipe path                            # show which recipe "explore" resolves
 

@@ -6,10 +6,10 @@
 v1design explore "a habit tracker app"
 ```
 
-it does two things: **pulls** existing designs from the v-1.design library as inspiration, and
-**runs your local "recipe"** to generate fresh concepts. The CLI ships **no design doctrine of its
-own** — the taste, the rules, the jury, the inspiration are *yours*, in a recipe you own. Mine are
-mine; yours are yours.
+it does two things: **pulls** a few existing designs from the v-1.design library as inspiration,
+and **runs your local "recipe"**. The CLI ships **no design doctrine and no workflow of its own** —
+the taste, the rules, the steps, the inspiration are *yours*, in a recipe you own. Mine are mine;
+yours are yours.
 
 ## What a recipe is
 
@@ -38,12 +38,11 @@ description: My design-exploration recipe.
 entry: explore
 ---
 
-# Flow: explore  (generate fresh + pull inspiration — NO seeding)
+# Flow: explore
 1. Pull a few references for the idea (see inspiration.md).
 2. Pick a fitting style (see archetypes.md + doctrine.md).
-3. Generate N fresh concepts (concept-first — cheap render, not a full build).
-4. Score each against jury.md. Keep the strong ones.
-5. STOP. Show the variety. Do not publish/seed — this is exploration.
+3. Generate some concepts and judge them (see jury.md).
+4. Show the results.
 ```
 
 ## Scaffold one
@@ -79,8 +78,9 @@ or published.
 
 ## explore vs studio
 
-- **`v1design explore`** runs *your local recipe* to generate fresh concepts. No account, no
-  credits, no seeding — pure exploration. This is the default for "generate new designs".
+- **`v1design explore`** pulls a few library designs as inspiration and runs *your local
+  recipe*. No account, no engine credits — and what it does is entirely up to your recipe. This
+  is the default for "generate new designs".
 - **`v1design studio "<brief>"`** is the v-1.design **engine forge**: it generates a finished
   design server-side and **spends credits**. Use it only when you explicitly want the hosted
   forge (it requires `--yes`).

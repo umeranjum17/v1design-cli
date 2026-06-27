@@ -12,21 +12,17 @@ NOT written v1design, do NOT use this skill, do NOT search or pull the library, 
 v1design at all — build with whatever they actually asked for. But the moment they DO write
 v1design, this skill is the priority and everything below applies.
 
-## Library-first — FOUR intents, don't conflate them (hard rule)
-This CLI is a **library + a recipe RUNNER**. Four distinct things:
+## Library-first — THREE intents, don't conflate them (hard rule)
+This CLI is a **library + a recipe RUNNER**. Three distinct things:
 1. **Search / pull** — `v1design search` / `library` / `designs get` / `screens get` /
    `theme|tokens|colors get`. Free, read-only, always fine (incl. the user's OWN designs).
-2. **Explore (generate new, from YOUR recipe)** — `v1design explore "<idea>"`. The DEFAULT
-   when the user says "explore designs / generate new ones". It pulls library designs as
-   inspiration AND runs the user's LOCAL recipe (discovered at `./.v1design/recipe`,
-   `~/.v1design/recipe`, or `V1DESIGN_RECIPE_DIR`) to generate fresh concepts, jury-vetted,
-   concept-first. It **STOPS before any seed/publish step** (exploration, not "add to library")
-   and spends NO engine credits. No recipe? It falls back to library exploration;
-   `v1design recipe init` scaffolds one.
-3. **Add to library** — the existing FULL pipeline THROUGH seeding (concept → jury → build →
-   cold-verify → stamp → seed listed). Run this ONLY when the user says "add a new design to the
-   library". Unchanged and preserved.
-4. **Studio forge (engine, spends credits)** — `v1design studio "<brief>" --yes` (was
+2. **Explore (run YOUR recipe)** — `v1design explore "<idea>"`. The DEFAULT when the user says
+   "explore designs / generate new ones". It pulls a few library designs as inspiration AND
+   discovers the user's LOCAL recipe (`./.v1design/recipe`, `~/.v1design/recipe`, or
+   `V1DESIGN_RECIPE_DIR`) and hands it to you to run. **What it does is defined entirely by that
+   recipe** — the CLI ships no doctrine or workflow of its own. It spends no engine credits. No
+   recipe? You just get the library results; `v1design recipe init` scaffolds a starter.
+3. **Studio forge (engine, spends credits)** — `v1design studio "<brief>" --yes` (was
    `v1design create`) and `v1design compose`. GENERATE on the engine and SPEND CREDITS; run ONLY
    on an explicit "studio/forge" ask (`--yes`; MCP tools require `confirm:true`).
 When unsure: search/pull or **explore** — never studio.
