@@ -406,7 +406,7 @@ export function buildServer(client: EngineHttpClient): McpServer {
   // the user's LOCAL recipe to run. Knows NOTHING about what the recipe does. No engine
   // credits. The default for "generate new designs / show me options".
   server.registerTool("explore", {
-    description: "Explore designs for an idea — returns TWO SEPARATE LANES (deliver both, never blend): Lane A = existing v1design LIBRARY designs matching the idea (pull/adapt the idea onto them, reuse); Lane B = the user's LOCAL recipe to GENERATE brand-new designs on its own (do not feed Lane A in). The DEFAULT for 'generate new designs / show me options'. Spends NO engine credits. No local recipe → only Lane A + how to add a recipe.",
+    description: "Explore designs for an idea — returns TWO SEPARATE LANES; explore is NOT complete until BOTH are handled (never blend): Lane A = adapt an existing v1design LIBRARY design onto the idea (reuse) — REQUIRED when the CLI marks a real match, OPTIONAL-with-an-explicit-decision when no strong fit (never silently drop it); Lane B = the user's LOCAL recipe to GENERATE brand-new designs on its own (do not feed Lane A in). The output ends with a DELIVERABLES checklist + DONE-WHEN gate — satisfy it. The DEFAULT for 'generate new designs / show me options'. Spends NO engine credits.",
     inputSchema: { idea: z.string().min(1), surface: z.enum(["web", "mobile"]).optional(), pulled: z.number().int().min(0).max(12).optional(), recipe: z.string().optional().describe("path to a recipe dir; else discovered via V1DESIGN_RECIPE_DIR → ./.v1design/recipe → ~/.v1design/recipe") },
   }, async ({ idea, surface, pulled, recipe }) => {
     const { assembleExploration } = await import("../cli/explore.mjs");

@@ -16,15 +16,19 @@ v1design, this skill is the priority and everything below applies.
 This CLI is a **library + a recipe RUNNER**. Three distinct things:
 1. **Search / pull** — `v1design search` / `library` / `designs get` / `screens get` /
    `theme|tokens|colors get`. Free, read-only, always fine (incl. the user's OWN designs).
-2. **Explore — TWO SEPARATE LANES** — `v1design explore "<idea>"`. The DEFAULT for "explore
-   designs / generate new ones". It returns TWO lanes and you must deliver BOTH, kept apart
-   (never blend one into the other):
-   - **Lane A — from the LIBRARY**: existing v1design library designs matching the idea. Pull/adapt
-     the idea onto them (reuse what already exists; remix). Does NOT generate anything new.
-   - **Lane B — FRESH from the recipe**: run the user's LOCAL recipe (discovered at
-     `./.v1design/recipe` → `~/.v1design/recipe` → `V1DESIGN_RECIPE_DIR`) to GENERATE brand-new
-     designs for the idea, **on its own** — do NOT feed Lane A's designs in. No recipe → Lane B is
-     unavailable; `v1design recipe init` scaffolds one.
+2. **Explore — TWO SEPARATE LANES (both mandatory)** — `v1design explore "<idea>"`. The DEFAULT for
+   "explore designs / generate new ones". It returns TWO lanes; **explore is NOT complete until BOTH
+   are handled**, kept apart (never blend):
+   - **Lane A — from the LIBRARY**: existing v1design designs matching the idea — pull/adapt the idea
+     onto one (reuse, don't generate). The CLI marks Lane A **REQUIRED** when there's a real match
+     (and prints the exact `designs get`/`theme get` commands for the top one — run them). When there's
+     **no strong fit** the CLI marks it OPTIONAL — but you must STILL state an explicit decision
+     (adapt-the-closest-as-a-stretch, or skip-with-reason). **Never silently drop Lane A** — that is
+     the #1 failure mode this gate exists to stop.
+   - **Lane B — FRESH from the recipe**: run the user's LOCAL recipe (`./.v1design/recipe` →
+     `~/.v1design/recipe` → `V1DESIGN_RECIPE_DIR`) to GENERATE brand-new designs **on its own** (do NOT
+     feed Lane A in). No recipe → Lane B unavailable; `v1design recipe init` scaffolds one.
+   The CLI prints a DELIVERABLES checklist + a DONE-WHEN gate — satisfy it before declaring explore done.
    Spends no engine credits; the CLI ships no doctrine. Present A and B separately so the user compares.
 3. **Studio forge (engine, spends credits)** — `v1design studio "<brief>" --yes` (was
    `v1design create`) and `v1design compose`. GENERATE on the engine and SPEND CREDITS; run ONLY
