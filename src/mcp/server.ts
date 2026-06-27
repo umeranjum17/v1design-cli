@@ -407,10 +407,10 @@ export function buildServer(client: EngineHttpClient): McpServer {
   // credits. The default for "generate new designs / show me options".
   server.registerTool("explore", {
     description: "Explore designs for an idea — returns TWO SEPARATE LANES; explore is NOT complete until BOTH are handled (never blend): Lane A = adapt an existing v1design LIBRARY design onto the idea (reuse) — REQUIRED when the CLI marks a real match, OPTIONAL-with-an-explicit-decision when no strong fit (never silently drop it); Lane B = the user's LOCAL recipe to GENERATE brand-new designs on its own (do not feed Lane A in). The output ends with a DELIVERABLES checklist + DONE-WHEN gate — satisfy it. The DEFAULT for 'generate new designs / show me options'. Spends NO engine credits.",
-    inputSchema: { idea: z.string().min(1), surface: z.enum(["web", "mobile"]).optional(), pulled: z.number().int().min(0).max(12).optional(), recipe: z.string().optional().describe("path to a recipe dir; else discovered via V1DESIGN_RECIPE_DIR → ./.v1design/recipe → ~/.v1design/recipe") },
-  }, async ({ idea, surface, pulled, recipe }) => {
+    inputSchema: { idea: z.string().min(1), surface: z.enum(["web", "mobile"]).optional(), archetype: z.string().optional().describe("filter Lane A to a design archetype (e.g. 'Editorial', 'Functional Minimalism', 'Swiss') — design-fit search, not just domain keyword"), pulled: z.number().int().min(0).max(12).optional(), recipe: z.string().optional().describe("path to a recipe dir; else discovered via V1DESIGN_RECIPE_DIR → ./.v1design/recipe → ~/.v1design/recipe") },
+  }, async ({ idea, surface, archetype, pulled, recipe }) => {
     const { assembleExploration } = await import("../cli/explore.mjs");
-    const r: any = await assembleExploration(idea, { surface, pulled, recipe });
+    const r: any = await assembleExploration(idea, { surface, archetype, pulled, recipe });
     return text(r.text);
   });
 
