@@ -4,11 +4,14 @@
 // project, the target design must match the project's tokensHash.
 import { apiRequest, normalizeRef } from "./lib/engine.mjs";
 import { readProjectManifest } from "./project-manifest.mjs";
+import { requireCreateConfirmation } from "./lib/confirm.mjs";
 
 export async function composeCommand(ref, flags) {
   const target = ref ? normalizeRef(ref) : (await readProjectManifest(process.cwd()))?.designRef;
-  if (!target) throw new Error("Usage: v1design compose <design-ref> --add \"Settings,Billing\" [--wait]");
+  if (!target) throw new Error("Usage: v1design compose <design-ref> --add \"Settings,Billing\" --yes [--wait]");
   if (!flags.add) throw new Error('Pass --add "Screen1,Screen2" with the new screen name(s).');
+  // Composing GENERATES new screens on the account (spends credits) — gate like create.
+  await requireCreateConfirmation("compose", flags);
 
   // Drift-guard: if we're inside a scaffolded project, refuse a foreign system.
   const manifest = await readProjectManifest(process.cwd());

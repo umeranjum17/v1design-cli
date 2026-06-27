@@ -6,6 +6,7 @@ import { dirname, join, parse as parsePath, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { login, logout, readCredentials, status, DEFAULT_API_URL } from "./auth.ts";
+import { requireCreateConfirmation } from "./lib/confirm.mjs";
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const SKILL_SOURCE = join(ROOT, "skills", "v1-design");
@@ -38,7 +39,9 @@ Usage:
   v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills] [--allow-project-write]
   v1design status
   v1design logout
-  v1design create "brief" [--target web|mobile|both] [--wait] [--json]
+  v1design create "brief" --yes [--target web|mobile|both] [--wait] [--json]
+      (create GENERATES a new design + spends credits — it is library-first, so it
+       needs --yes and should only run when you've EXPLICITLY asked to create one)
   v1design search "fintech dashboard" [--type design|screen|palette|font|component] [--surface web|mobile] [--limit 12]
   v1design library search "book app" [--surface web|mobile] [--json] [--limit 8]
   v1design library suggest "book app" [--surface web|mobile] [--limit 5] [--open] [--json]
@@ -57,6 +60,9 @@ Build a runnable, verified app (idea or a specific design → Next.js / Expo):
   v1design remix <refA> <refB> [--system <ref>] [--surface web|mobile] [--out ./dir] [--install]
   v1design verify [dir] [--heal] [--against <ref>] [--json]
   v1design grade <dir> [--against <ref>] [--json]
+
+Find AI-slop tells in any UI (free, no account, no API key, runs locally):
+  v1design detect [dir] [--json] [--tells]
   v1design vibe "darker|teal fintech|..." [--in ./dir]
   v1design compose <design-ref> --add "Settings,Billing" [--wait]
   v1design compare <refA> <refB> [--surface web|mobile] [--open]
@@ -104,7 +110,7 @@ function parse(argv) {
     const key = a.slice(2);
     if ([
       "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "loose-surface",
-      "install", "run", "yes", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css",
+      "install", "run", "yes", "confirm", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css", "tells",
     ].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
@@ -642,6 +648,8 @@ async function waitForDesign(projectId, flags) {
 
 async function createDesign(brief, flags) {
   if (!brief) throw new Error("Brief required.");
+  // Library-first: creating a NEW design spends credits, so it never runs on intent.
+  await requireCreateConfirmation("create", flags);
   const body = {
     brief,
     target: flags.target,
@@ -704,6 +712,10 @@ async function main() {
   if (cmd === "verify") {
     const { verifyCommand } = await import("./verify.mjs");
     await verifyCommand(sub, flags); return;
+  }
+  if (cmd === "detect") {
+    const { detectCommand } = await import("./detect.mjs");
+    await detectCommand(sub || ".", flags); return;
   }
   if (cmd === "grade") {
     const { gradeCommand } = await import("./grade.mjs");

@@ -1,6 +1,6 @@
 ---
 name: v1-design
-description: Build, recolour, remix, or extend a real app from the v-1.design library — search it, pull from it, compose. HARD GATE — use this skill ONLY when the user EXPLICITLY writes "v1design" / "v-1.design" (or pastes a v-1.design library/studio/share link or slug), OR the work is already on a v-1.design-derived app started that way in this session. If v1design was NOT explicitly mentioned, do NOT use this skill at all — even for UI / design / colour / theme / layout work; build with whatever the user asked for using your normal tools. Triggers: "use v1design to build …", a v-1.design link/slug, or a follow-up inside an explicitly-v1design session (add a screen, recolour, re-skin, remix, search the library). You are the engineer; v-1.design is your design colleague; the user is the PM.
+description: Search and pull from the v-1.design library, then build/recolour/remix a real app from it. LIBRARY-FIRST — the default is search + pull (incl. the user's own designs); NEVER create or generate a new design (v1design create / compose) unless the user EXPLICITLY asks to create one — that spends credits. HARD GATE — use this skill ONLY when the user EXPLICITLY writes "v1design" / "v-1.design" (or pastes a v-1.design library/studio/share link or slug), OR the work is already on a v-1.design-derived app started that way in this session. If v1design was NOT explicitly mentioned, do NOT use this skill at all — even for UI / design / colour / theme / layout work; build with whatever the user asked for using your normal tools. Triggers: "use v1design to build …", a v-1.design link/slug, or a follow-up inside an explicitly-v1design session (add a screen, recolour, re-skin, remix, search the library). You are the engineer; v-1.design is your design colleague; the user is the PM.
 ---
 
 # v-1.design — your design colleague
@@ -11,6 +11,16 @@ a v-1.design library/studio/share link or slug). That mention is mandatory. If t
 NOT written v1design, do NOT use this skill, do NOT search or pull the library, do NOT touch
 v1design at all — build with whatever they actually asked for. But the moment they DO write
 v1design, this skill is the priority and everything below applies.
+
+## Library-first — never create unless explicitly asked (hard rule)
+This CLI is for the **library**: **search it and pull from it** (whole designs, screens,
+palettes, fonts, components — and the user's OWN designs via `designs list` / `designs get`).
+Those are free, read-only, and always fine. **Generating new work — `v1design create` (a new
+design) and `v1design compose` (new screens) — SPENDS CREDITS, so NEVER run it unless the user
+has EXPLICITLY asked to create/generate a new design in v-1.design.** Default to search + pull.
+If the user only said "use v1design", that means pull from the library, NOT create. When they do
+ask to create, the command requires `--yes` (the MCP `create_design` / `add_screen` tools require
+`confirm:true`) — pass it ONLY on that explicit request. When unsure: search and pull, don't create.
 
 ## The relationship
 The user is the **PM** — they tell you, in plain language, what they want. **You are the

@@ -12,7 +12,9 @@ import { z } from "zod";
 
 const INSTRUCTIONS = `v-1.design is a design engine ("the forge") that generates on-brand app UI — real React/TSX screens + a shadcn/Tailwind design system (globals.css) + a DESIGN.md.
 
-WORKFLOW: stay non-intrusive until the user explicitly asks to use v-1.design in the project. It is okay to connect, check status, and search_library as read-only discovery. Do not create a design, pull artifacts, fetch screen code into files, or edit the target repo unless the user asks to pull/use/build/integrate/create with v-1.design. If the user provides an app idea but no design link and asks to use v-1.design in a brand-new project, search_library first with limit:5 and the right surface, show the five Library options/links to the user, ask which one resonates, and wait for their choice before pulling artifacts or building. Use surface:"web" for browser/Next.js work and surface:"mobile" for React Native/Expo work. If the user explicitly delegates the choice to you, compare the candidates and state which reference you chose before building. create_design with a product brief generates a new design on the user's account; the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
+HARD RULE — NEVER CREATE UNLESS EXPLICITLY ASKED: this server is LIBRARY-FIRST. Search (search_library / search) and pull (get_design, get_screen_code, get_tokens, get_theme, get_colors, and list_designs for the user's own designs) are always fine. create_design and add_screen GENERATE new work and SPEND CREDITS — do NOT call them unless the user has EXPLICITLY asked to create/generate a NEW design in v-1.design. Both require confirm:true, which you may pass ONLY on that explicit request. When in doubt: search + pull, never create.
+
+WORKFLOW: stay non-intrusive until the user explicitly asks to use v-1.design in the project. It is okay to connect, check status, and search_library as read-only discovery. Do not create a design, pull artifacts, fetch screen code into files, or edit the target repo unless the user asks to pull/use/build/integrate with v-1.design. If the user provides an app idea but no design link and asks to use v-1.design in a brand-new project, search_library first with limit:5 and the right surface, show the five Library options/links to the user, ask which one resonates, and wait for their choice before pulling artifacts or building. Use surface:"web" for browser/Next.js work and surface:"mobile" for React Native/Expo work. If the user explicitly delegates the choice to you, compare the candidates and state which reference you chose before building. create_design with a product brief generates a new design on the user's account; the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
 
 Every result also includes a studio URL (https://…/studio/<id>) — SHARE IT with the user so they can open the design in their browser to see it rendered and tweak it visually.
 
@@ -346,7 +348,7 @@ export function buildServer(client: EngineHttpClient): McpServer {
       const count = `${ready} screen${ready === 1 ? "" : "s"}${extra ? ` (+${extra})` : ""}`;
       return `- "${d.appName}" (${count}) · ${String(d.brief).slice(0, 60)}\n    ${studioUrl(d.id)}  ·  id: ${d.id}`;
     });
-    return text(rows.length ? `Your designs:\n${rows.join("\n")}` : "No designs yet. Use create_design.");
+    return text(rows.length ? `Your designs:\n${rows.join("\n")}` : "No designs on your account yet. Use search_library to pull a library design (don't create one unless the user explicitly asked).");
   });
 
   server.registerTool("get_design", {
@@ -397,9 +399,10 @@ export function buildServer(client: EngineHttpClient): McpServer {
   });
 
   server.registerTool("create_design", {
-    description: "Generate a new app design from a brief. Blocks and streams progress, returning the finished design bundle in one call (no polling). Pass wait:false to return immediately with just the projectId. Optionally pass `url` (or just paste an existing site's URL in the brief) to MATCH that brand — the engine fetches the site and seeds the design's color, logo & nav from it. Vibe/palette are auto-inferred when omitted.",
-    inputSchema: { brief: z.string().min(1).max(2000), target: z.enum(["web", "mobile", "both"]).optional(), mode: z.enum(["light", "dark"]).optional(), vibe: z.string().optional(), url: z.string().optional(), format: z.enum(["markdown", "json"]).optional(), wait: z.boolean().optional() },
-  }, async ({ brief, target, mode, vibe, url, format, wait }, extra) => {
+    description: "Generate a NEW app design from a brief. SPENDS CREDITS — library-first rule applies: only call this when the user has EXPLICITLY asked to create/generate a new design, and you MUST pass confirm:true (omitting it is refused). Prefer search_library + pull for everything else. Blocks and streams progress, returning the finished design bundle in one call (no polling). Pass wait:false to return immediately with just the projectId. Optionally pass `url` to MATCH an existing brand. Vibe/palette are auto-inferred when omitted.",
+    inputSchema: { brief: z.string().min(1).max(2000), confirm: z.boolean().optional().describe("Must be true. Set ONLY when the user explicitly asked to create/generate a new design."), target: z.enum(["web", "mobile", "both"]).optional(), mode: z.enum(["light", "dark"]).optional(), vibe: z.string().optional(), url: z.string().optional(), format: z.enum(["markdown", "json"]).optional(), wait: z.boolean().optional() },
+  }, async ({ brief, confirm, target, mode, vibe, url, format, wait }, extra) => {
+    if (!confirm) return errText("Refusing to create a design without confirmation. create_design GENERATES a new design and SPENDS CREDITS — the default is library search + pull (search_library / get_design / get_tokens need no confirmation). Only call create_design again with confirm:true when the USER has EXPLICITLY asked to create/generate a NEW design in v-1.design.");
     const created = await client.json("POST", "/designs", { brief, target, mode, vibe, url });
     const pid = created.projectId;
     if (wait === false) return text(`Started generating "${created.appName}". projectId: ${pid}\n→ Watch it draft live in the studio: ${studioUrl(pid)}\nCall wait_for_design("${pid}") to receive the finished bundle here.`);
@@ -412,9 +415,10 @@ export function buildServer(client: EngineHttpClient): McpServer {
   });
 
   server.registerTool("add_screen", {
-    description: "Add a new on-brand screen to an existing design. Blocks and streams progress, returning when the screen is ready.",
-    inputSchema: { projectId: z.string(), name: z.string().min(1).max(80), surface: z.enum(["mobile", "web"]).optional(), wait: z.boolean().optional() },
-  }, async ({ projectId, name, surface, wait }, extra) => {
+    description: "Add a NEW on-brand screen to an existing design. SPENDS CREDITS — only when the user EXPLICITLY asked to generate a new screen, and you MUST pass confirm:true (omitting it is refused). Blocks and streams progress, returning when the screen is ready.",
+    inputSchema: { projectId: z.string(), name: z.string().min(1).max(80), confirm: z.boolean().optional().describe("Must be true. Set ONLY when the user explicitly asked to generate a new screen."), surface: z.enum(["mobile", "web"]).optional(), wait: z.boolean().optional() },
+  }, async ({ projectId, name, confirm, surface, wait }, extra) => {
+    if (!confirm) return errText("Refusing to add a screen without confirmation. add_screen GENERATES a new screen and SPENDS CREDITS. Only call it again with confirm:true when the USER has EXPLICITLY asked to generate a new screen.");
     const ref = designRef(projectId);
     await client.json("POST", `/designs/${encodeURIComponent(ref)}/screens`, { name, surface });
     if (wait === false) return text(`Adding "${name}" to ${ref}. Call get_design("${ref}") shortly to pull it.${openLine(ref)}`);
