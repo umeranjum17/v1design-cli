@@ -39,9 +39,15 @@ Usage:
   v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills] [--allow-project-write]
   v1design status
   v1design logout
-  v1design create "brief" --yes [--target web|mobile|both] [--wait] [--json]
-      (create GENERATES a new design + spends credits — it is library-first, so it
-       needs --yes and should only run when you've EXPLICITLY asked to create one)
+Explore designs for an idea with YOUR local recipe (pull library inspiration + generate fresh; never seeds):
+  v1design explore "an idea" [--fresh N] [--pulled M] [--surface web|mobile] [--recipe <dir>] [--json]
+  v1design recipe init [--out <dir>] [--force]   # scaffold a sample recipe to ./.v1design/recipe
+  v1design recipe path                            # show which recipe "explore" resolves
+
+Generate a brand-new design with the ENGINE forge (spends credits — only on an explicit ask):
+  v1design studio "brief" --yes [--target web|mobile|both] [--wait] [--json]
+      ("studio" GENERATES a new design via the engine + spends credits, so it needs --yes.
+       "v1design create" is a deprecated alias for "studio".)
   v1design search "fintech dashboard" [--type design|screen|palette|font|component] [--surface web|mobile] [--limit 12]
   v1design library search "book app" [--surface web|mobile] [--json] [--limit 8]
   v1design library suggest "book app" [--surface web|mobile] [--limit 5] [--open] [--json]
@@ -110,7 +116,7 @@ function parse(argv) {
     const key = a.slice(2);
     if ([
       "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "loose-surface",
-      "install", "run", "yes", "confirm", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css", "tells",
+      "install", "run", "yes", "confirm", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css", "tells", "force",
     ].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
@@ -648,8 +654,8 @@ async function waitForDesign(projectId, flags) {
 
 async function createDesign(brief, flags) {
   if (!brief) throw new Error("Brief required.");
-  // Library-first: creating a NEW design spends credits, so it never runs on intent.
-  await requireCreateConfirmation("create", flags);
+  // Library-first: the studio forge spends credits, so it never runs on intent.
+  await requireCreateConfirmation("studio", flags);
   const body = {
     brief,
     target: flags.target,
@@ -682,7 +688,20 @@ async function main() {
   if (cmd === "connect" || cmd === "setup") { await connect(flags); return; }
   if (cmd === "status" || cmd === "auth:status") { await status(); return; }
   if (cmd === "logout" || cmd === "auth:logout") { await logout(); return; }
-  if (cmd === "create") { await createDesign([sub, ...rest].filter(Boolean).join(" "), flags); return; }
+  if (cmd === "studio" || cmd === "create") {
+    // "studio" = the ENGINE forge (generates a NEW design, spends credits). `create` is a
+    // deprecated alias kept so 0.3.x callers don't break — it warns then runs studio.
+    if (cmd === "create") console.error("Note: `v1design create` is now `v1design studio` (the engine forge). Running studio…");
+    await createDesign([sub, ...rest].filter(Boolean).join(" "), flags); return;
+  }
+  if (cmd === "explore") {
+    const { exploreCommand } = await import("./explore.mjs");
+    await exploreCommand([sub, ...rest].filter(Boolean).join(" "), flags); return;
+  }
+  if (cmd === "recipe") {
+    const { recipeCommand } = await import("./recipe.mjs");
+    await recipeCommand(sub, flags); return;
+  }
   if (cmd === "search") { await searchEngine([sub, ...rest].filter(Boolean).join(" "), flags); return; }
   if (cmd === "pull") { await pull(sub, flags); return; }
   if (cmd === "skill" && sub === "install") { await installSkill(flags); return; }

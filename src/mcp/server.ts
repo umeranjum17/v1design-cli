@@ -12,9 +12,13 @@ import { z } from "zod";
 
 const INSTRUCTIONS = `v-1.design is a design engine ("the forge") that generates on-brand app UI — real React/TSX screens + a shadcn/Tailwind design system (globals.css) + a DESIGN.md.
 
-HARD RULE — NEVER CREATE UNLESS EXPLICITLY ASKED: this server is LIBRARY-FIRST. Search (search_library / search) and pull (get_design, get_screen_code, get_tokens, get_theme, get_colors, and list_designs for the user's own designs) are always fine. create_design and add_screen GENERATE new work and SPEND CREDITS — do NOT call them unless the user has EXPLICITLY asked to create/generate a NEW design in v-1.design. Both require confirm:true, which you may pass ONLY on that explicit request. When in doubt: search + pull, never create.
+HARD RULE — LIBRARY-FIRST; FOUR DISTINCT INTENTS, don't conflate them:
+1. SEARCH / PULL — search_library / search, then get_design / get_screen_code / get_tokens / get_theme / get_colors / list_designs. Always fine, free.
+2. EXPLORE — to "explore designs for an idea / generate new ones", use the explore tool. It pulls library designs as inspiration AND hands you the user's LOCAL recipe to generate fresh concepts (jury-vetted, concept-first, NO seeding). It spends NO engine credits. This is the default for "generate new designs".
+3. STUDIO (the engine forge) — create_studio_design / add_screen GENERATE new work on the engine and SPEND CREDITS. Do NOT call them unless the user EXPLICITLY asked for the "studio" forge; both require confirm:true.
+When in doubt: search/pull or explore — never studio.
 
-WORKFLOW: stay non-intrusive until the user explicitly asks to use v-1.design in the project. It is okay to connect, check status, and search_library as read-only discovery. Do not create a design, pull artifacts, fetch screen code into files, or edit the target repo unless the user asks to pull/use/build/integrate with v-1.design. If the user provides an app idea but no design link and asks to use v-1.design in a brand-new project, search_library first with limit:5 and the right surface, show the five Library options/links to the user, ask which one resonates, and wait for their choice before pulling artifacts or building. Use surface:"web" for browser/Next.js work and surface:"mobile" for React Native/Expo work. If the user explicitly delegates the choice to you, compare the candidates and state which reference you chose before building. create_design with a product brief generates a new design on the user's account; the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
+WORKFLOW: stay non-intrusive until the user explicitly asks to use v-1.design in the project. It is okay to connect, check status, and search_library as read-only discovery. Do not create a design, pull artifacts, fetch screen code into files, or edit the target repo unless the user asks to pull/use/build/integrate with v-1.design. If the user provides an app idea but no design link and asks to use v-1.design in a brand-new project, search_library first with limit:5 and the right surface, show the five Library options/links to the user, ask which one resonates, and wait for their choice before pulling artifacts or building. Use surface:"web" for browser/Next.js work and surface:"mobile" for React Native/Expo work. If the user explicitly delegates the choice to you, compare the candidates and state which reference you chose before building. create_studio_design with a product brief generates a new design on the user's account (the engine forge — spends credits, confirm:true required); the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
 
 Every result also includes a studio URL (https://…/studio/<id>) — SHARE IT with the user so they can open the design in their browser to see it rendered and tweak it visually.
 
@@ -25,7 +29,7 @@ THEN BUILD THE REAL APP. The screens are a visual reference (web React + Tailwin
 • MOBILE (React Native / Expo by default for a new repo): start with Expo + React Native unless the target repo already uses another mobile stack or the user asks otherwise. The TSX handoff won't run as-is in native — treat the design as the SOURCE OF TRUTH for look & feel and re-implement it with native primitives (View/Text/FlatList/ScrollView/Pressable) or the repo's NativeWind/components. Read design-tokens.json for palette/type/radius and keep the same tokens across screens.
 • OTHER NATIVE STACKS (Flutter, SwiftUI, etc.): the TSX won't run as-is — rebuild with native primitives, matching hierarchy, spacing, tokens, and copy.
 
-IMPORTANT: never poll. create_design / add_screen / wait_for_design are push-based — they stream progress and return the finished design in one call. get_design is a single read, not a loop.`;
+IMPORTANT: never poll. create_studio_design / add_screen / wait_for_design are push-based — they stream progress and return the finished design in one call. get_design is a single read, not a loop.`;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type ProgressEntry = { type: string; [k: string]: any };
@@ -398,11 +402,23 @@ export function buildServer(client: EngineHttpClient): McpServer {
     return text(`${note}\n${urlLine}\n\`\`\`tsx\n${s.code}\n\`\`\``);
   });
 
-  server.registerTool("create_design", {
-    description: "Generate a NEW app design from a brief. SPENDS CREDITS — library-first rule applies: only call this when the user has EXPLICITLY asked to create/generate a new design, and you MUST pass confirm:true (omitting it is refused). Prefer search_library + pull for everything else. Blocks and streams progress, returning the finished design bundle in one call (no polling). Pass wait:false to return immediately with just the projectId. Optionally pass `url` to MATCH an existing brand. Vibe/palette are auto-inferred when omitted.",
-    inputSchema: { brief: z.string().min(1).max(2000), confirm: z.boolean().optional().describe("Must be true. Set ONLY when the user explicitly asked to create/generate a new design."), target: z.enum(["web", "mobile", "both"]).optional(), mode: z.enum(["light", "dark"]).optional(), vibe: z.string().optional(), url: z.string().optional(), format: z.enum(["markdown", "json"]).optional(), wait: z.boolean().optional() },
-  }, async ({ brief, confirm, target, mode, vibe, url, format, wait }, extra) => {
-    if (!confirm) return errText("Refusing to create a design without confirmation. create_design GENERATES a new design and SPENDS CREDITS — the default is library search + pull (search_library / get_design / get_tokens need no confirmation). Only call create_design again with confirm:true when the USER has EXPLICITLY asked to create/generate a NEW design in v-1.design.");
+  // EXPLORE — the recipe RUNNER. Pulls library designs as inspiration AND returns the
+  // user's LOCAL recipe so the agent generates fresh concepts (jury-vetted, NO seeding).
+  // Spends NO engine credits. The default for "generate new designs / show me options".
+  server.registerTool("explore", {
+    description: "Explore designs for an idea: pull library designs as inspiration AND return the user's LOCAL recipe pipeline so you can generate fresh concepts (jury-vetted, concept-first, NO seeding). This is the DEFAULT for 'generate new designs / show me options'. Spends NO engine credits. If there's no local recipe it returns library exploration + how to add one. Then YOU run the returned recipe's explore flow and STOP before any seed/publish step.",
+    inputSchema: { idea: z.string().min(1), surface: z.enum(["web", "mobile"]).optional(), fresh: z.number().int().min(1).max(8).optional(), pulled: z.number().int().min(0).max(12).optional(), recipe: z.string().optional().describe("path to a recipe dir; else discovered via V1DESIGN_RECIPE_DIR → ./.v1design/recipe → ~/.v1design/recipe") },
+  }, async ({ idea, surface, fresh, pulled, recipe }) => {
+    const { assembleExploration } = await import("../cli/explore.mjs");
+    const r: any = await assembleExploration(idea, { surface, fresh, pulled, recipe });
+    return text(r.text);
+  });
+
+  // The ENGINE forge — "studio". Generates a NEW design server-side (spends credits).
+  // This is NOT the "explore" recipe runner; only use it on an explicit studio/forge ask.
+  const studioForgeSchema = { brief: z.string().min(1).max(2000), confirm: z.boolean().optional().describe("Must be true. Set ONLY when the user explicitly asked for the studio forge to generate a new design."), target: z.enum(["web", "mobile", "both"]).optional(), mode: z.enum(["light", "dark"]).optional(), vibe: z.string().optional(), url: z.string().optional(), format: z.enum(["markdown", "json"]).optional(), wait: z.boolean().optional() };
+  const studioForgeHandler = async ({ brief, confirm, target, mode, vibe, url, format, wait }: any, extra: any) => {
+    if (!confirm) return errText("Refusing to forge a design without confirmation. The studio forge GENERATES a new design on the engine and SPENDS CREDITS — the default is library search + pull, or `explore` to generate from the user's local recipe (no engine credits). Only call create_studio_design again with confirm:true when the USER has EXPLICITLY asked for the studio forge.");
     const created = await client.json("POST", "/designs", { brief, target, mode, vibe, url });
     const pid = created.projectId;
     if (wait === false) return text(`Started generating "${created.appName}". projectId: ${pid}\n→ Watch it draft live in the studio: ${studioUrl(pid)}\nCall wait_for_design("${pid}") to receive the finished bundle here.`);
@@ -412,7 +428,16 @@ export function buildServer(client: EngineHttpClient): McpServer {
     if (fmt === "json") return text(body);
     const status = (await client.json("GET", `/designs/${pid}?format=json&slim=1`)).status;
     return text(body + footer(status) + openLine(pid));
-  });
+  };
+  server.registerTool("create_studio_design", {
+    description: "STUDIO FORGE: generate a NEW app design from a brief on the engine. SPENDS CREDITS — only call when the user EXPLICITLY asked for the studio forge, and you MUST pass confirm:true (omitting it is refused). For 'generate new designs' in general, prefer `explore` (uses the user's local recipe, no engine credits); for existing designs, prefer search_library + pull. Blocks and streams progress, returning the finished bundle in one call (no polling). wait:false returns immediately with the projectId. Optional `url` MATCHes an existing brand.",
+    inputSchema: studioForgeSchema,
+  }, studioForgeHandler);
+  // Deprecated alias kept one release so 0.3.x callers don't break.
+  server.registerTool("create_design", {
+    description: "DEPRECATED — renamed to create_studio_design (the engine forge, spends credits). Same behavior; requires confirm:true. Prefer `explore` to generate from the user's local recipe.",
+    inputSchema: studioForgeSchema,
+  }, studioForgeHandler);
 
   server.registerTool("add_screen", {
     description: "Add a NEW on-brand screen to an existing design. SPENDS CREDITS — only when the user EXPLICITLY asked to generate a new screen, and you MUST pass confirm:true (omitting it is refused). Blocks and streams progress, returning when the screen is ready.",

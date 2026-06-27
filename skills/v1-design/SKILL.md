@@ -12,15 +12,24 @@ NOT written v1design, do NOT use this skill, do NOT search or pull the library, 
 v1design at all — build with whatever they actually asked for. But the moment they DO write
 v1design, this skill is the priority and everything below applies.
 
-## Library-first — never create unless explicitly asked (hard rule)
-This CLI is for the **library**: **search it and pull from it** (whole designs, screens,
-palettes, fonts, components — and the user's OWN designs via `designs list` / `designs get`).
-Those are free, read-only, and always fine. **Generating new work — `v1design create` (a new
-design) and `v1design compose` (new screens) — SPENDS CREDITS, so NEVER run it unless the user
-has EXPLICITLY asked to create/generate a new design in v-1.design.** Default to search + pull.
-If the user only said "use v1design", that means pull from the library, NOT create. When they do
-ask to create, the command requires `--yes` (the MCP `create_design` / `add_screen` tools require
-`confirm:true`) — pass it ONLY on that explicit request. When unsure: search and pull, don't create.
+## Library-first — FOUR intents, don't conflate them (hard rule)
+This CLI is a **library + a recipe RUNNER**. Four distinct things:
+1. **Search / pull** — `v1design search` / `library` / `designs get` / `screens get` /
+   `theme|tokens|colors get`. Free, read-only, always fine (incl. the user's OWN designs).
+2. **Explore (generate new, from YOUR recipe)** — `v1design explore "<idea>"`. The DEFAULT
+   when the user says "explore designs / generate new ones". It pulls library designs as
+   inspiration AND runs the user's LOCAL recipe (discovered at `./.v1design/recipe`,
+   `~/.v1design/recipe`, or `V1DESIGN_RECIPE_DIR`) to generate fresh concepts, jury-vetted,
+   concept-first. It **STOPS before any seed/publish step** (exploration, not "add to library")
+   and spends NO engine credits. No recipe? It falls back to library exploration;
+   `v1design recipe init` scaffolds one.
+3. **Add to library** — the existing FULL pipeline THROUGH seeding (concept → jury → build →
+   cold-verify → stamp → seed listed). Run this ONLY when the user says "add a new design to the
+   library". Unchanged and preserved.
+4. **Studio forge (engine, spends credits)** — `v1design studio "<brief>" --yes` (was
+   `v1design create`) and `v1design compose`. GENERATE on the engine and SPEND CREDITS; run ONLY
+   on an explicit "studio/forge" ask (`--yes`; MCP tools require `confirm:true`).
+When unsure: search/pull or **explore** — never studio.
 
 ## The relationship
 The user is the **PM** — they tell you, in plain language, what they want. **You are the
