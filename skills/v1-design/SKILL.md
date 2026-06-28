@@ -39,6 +39,14 @@ This CLI is a **library + a recipe RUNNER**. Three distinct things:
      every option side by side) and OPENS it. The user flips through, **picks one, and builds their app
      from it**. Explore is NOT done until the gallery has been opened for the user.
    - **Default 2 adapted + 2 fresh** unless the user asks for more (`--adapt N` / `--fresh N`).
+   - **RENDERING — every concept, every lane (clean product shot, not a demo):**
+     - **NO on-screen keyboard** — no phone QWERTY / iOS keyboard / key grid. The editor + suggestions
+       ARE the hero; a drawn keyboard makes it read as a keyboard-app demo, not a product.
+     - **NO fake OS chrome** — no "9:41" status bar, no signal/wifi/battery, no device bezel / phone
+       mockup frame. Render the app screen itself, full-bleed.
+     - **ONE cohesive screen**, not a long scrolling magazine page. Mobile ≈ 430×950–1150; web ≈ a clean
+       above-the-fold hero. Generous whitespace, premium, fully procedural, real copy (no lorem).
+     - **LIGHT palette by default** (dark only if the chosen movement truly demands it; ≤1 dark per set).
    Spends no engine credits; the CLI ships no doctrine. Keep the lanes separate — never blend A into B.
 3. **Studio forge (engine, spends credits)** — `v1design studio "<brief>" --yes` (was
    `v1design create`) and `v1design compose`. GENERATE on the engine and SPEND CREDITS; run ONLY
