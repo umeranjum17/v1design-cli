@@ -38,6 +38,14 @@ This CLI is a **library + a recipe RUNNER**. Three distinct things:
    - **OUTPUT IT: `v1design gallery <folder>`** — assembles a polished browser page (Lane A vs Lane B,
      every option side by side) and OPENS it. The user flips through, **picks one, and builds their app
      from it**. Explore is NOT done until the gallery has been opened for the user.
+   - **BUILD the pick = REAL code in the surface's stack — NOT HTML.** mobile → **Expo React Native**
+     (Expo Router + NativeWind, real `.tsx` screens); web → **Next.js** (App Router + Tailwind/shadcn).
+     The picked concept render is the **binding spec, never the shipped app** — do NOT hand-build HTML
+     mockups as the app. Lane A (library) pick → `v1design scaffold <slug> --surface <surface> --install`
+     (runnable project from the real handoff), then adapt. Lane B (fresh) pick → `v1design new "<name>"
+     --surface <surface> --install` to scaffold the skeleton, then author EVERY screen as real `.tsx`
+     faithfully from the concept. Build ALL the screens, then render to verify (mobile: `expo export
+     --platform web` → screenshot; web: build → screenshot).
    - **Default 2 adapted + 2 fresh** unless the user asks for more (`--adapt N` / `--fresh N`).
    - **RENDERING — every concept, every lane (clean product shot, not a demo):**
      - **NO on-screen keyboard** — no phone QWERTY / iOS keyboard / key grid. The editor + suggestions

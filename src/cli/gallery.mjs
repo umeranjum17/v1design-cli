@@ -113,14 +113,13 @@ function buildHtml(concepts, folder, idea) {
     ${section("Lane B — fresh from your recipe", "brand-new, each a distinct design movement", B)}
     ${section("Concepts", "", rest)}
   </main>
-  <div class="bar" id="bar">Click <b>Pick this →</b> on the option you want, then tell your coding agent: <code id="cmd">build the &lt;name&gt; concept</code></div>
+  <div class="bar" id="bar">Click <b>Pick this →</b>, then tell your agent to <b>build it as a real app</b> — mobile = Expo React Native, web = Next. The concept is the spec, not the shipped app.</div>
   <script>
     function pick(btn){
       document.querySelectorAll('.card').forEach(c=>c.classList.remove('picked'));
       const fig=btn.closest('.card'); fig.classList.add('picked');
       const name=fig.getAttribute('data-name');
-      document.getElementById('cmd').textContent='build the "'+name+'" concept (spec: this folder)';
-      document.getElementById('bar').innerHTML='Picked <b>'+name+'</b> — tell your agent: <code>build the "'+name+'" concept from its HTML in this folder</code>';
+      document.getElementById('bar').innerHTML='Picked <b>'+name+'</b> — now build it as a REAL app (mobile: Expo React Native · web: Next). The concept HTML in this folder is the binding spec, not the shipped app.';
       fig.scrollIntoView({behavior:'smooth',block:'center'});
     }
   </script>

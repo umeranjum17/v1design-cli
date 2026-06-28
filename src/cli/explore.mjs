@@ -52,6 +52,19 @@ export async function assembleExploration(idea, flags = {}) {
   const recipe = resolveRecipe(flags);
   const slug = (String(idea).toLowerCase().match(/[a-z0-9]+/g) || ["idea"]).slice(0, 4).join("-");
   const folder = `v1-explore/${slug}${surface ? `-${surface}` : ""}`;   // FRESH per-idea folder; never muddle an existing one
+  // The BUILD step the skill kept omitting: the picked concept becomes a REAL app in the surface's stack.
+  const stack = surface === "mobile"
+    ? "Expo React Native — Expo Router + NativeWind, real .tsx screens (NOT HTML)"
+    : surface === "web"
+      ? "Next.js — App Router + Tailwind/shadcn, .tsx"
+      : "the surface's real stack (mobile = Expo React Native, web = Next.js)";
+  const sfx = surface || "<surface>";
+  const buildHandoff =
+`▶ BUILD — once the user PICKS one (build a REAL app, NOT the HTML concept):
+  Stack: ${stack}. The picked concept render is the BINDING SPEC — execute it faithfully; the HTML/PNG is the spec, never the shipped app.
+  - Pick is a Lane A (library) option →  v1design scaffold <slug> --surface ${sfx} --out <dir> --install   (runnable project from the real design handoff), then adapt to the idea.
+  - Pick is a Lane B (fresh) option   →  v1design new "<app name>" --surface ${sfx} --target <dir> --install   to scaffold the skeleton, then author EVERY screen as real ${surface === "mobile" ? "React Native .tsx" : ".tsx"} faithfully from the concept.
+  Build ALL the app's screens (not just the hero), then render to verify (${surface === "mobile" ? "expo export --platform web → screenshot" : "vite/next build → screenshot"}). Never hand-build HTML mockups as the deliverable app.`;
 
   // Lane A search: prefer the engine's indexed /api/search (covers prompts); fall back to client-side.
   let cards = [];
@@ -131,7 +144,10 @@ ${laneADo}
 ${laneB}
 
 DONE WHEN: ${doneWhen}
-  Then the user PICKS one in the gallery and builds their app from it.
+  Then the user PICKS one in the gallery — and you BUILD it (below).
+
+${buildHandoff}
+
 Keep the lanes separate — never blend Lane A into Lane B. Default ${adapt} adapted + ${fresh} fresh unless the user asks for more.`;
 
   return {
@@ -139,6 +155,7 @@ Keep the lanes separate — never blend Lane A into Lane B. Default ${adapt} ada
     json: {
       idea, surface, archetype: archetype || null, folder, adapt, fresh,
       gallery: `v1design gallery ${folder}`,
+      buildStack: stack,
       laneA: { required: strongA, searchedBy, topMatch: top?.card.slug ?? null, topScore: top?.score ?? 0, topRelevance: top?.relevance ?? null, designs: scored.map((e) => e.card.slug) },
       laneB: recipe.found ? { source: "recipe", dir: recipe.dir } : null,
     },
