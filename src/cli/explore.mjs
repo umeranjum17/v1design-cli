@@ -3,9 +3,9 @@
 //   Lane A — adapt an existing v1design LIBRARY design onto the idea (REUSE). Searched by
 //            ARCHETYPE (design fit) when --archetype is given, else by keyword (domain fit).
 //   Lane B — GENERATE FRESH from the user's LOCAL recipe (on its own).
-// Library matches come from /api/library (which carries `archetype`); there is no server-side
-// search endpoint yet, so ranking is client-side. The CLI ships no doctrine of its own.
-import { fetchLibrary } from "./lib/engine.mjs";
+// Lane A uses the engine's INDEXED /api/search (searches every field incl. prompts) when it's
+// available, else falls back to a client-side rank over /api/library. The CLI ships no doctrine.
+import { fetchLibrary, searchLibraryRemote } from "./lib/engine.mjs";
 import { resolveRecipe, readRecipe } from "./lib/recipe.mjs";
 
 const STOP = new Set(["app", "apps", "design", "designs", "ui", "ux", "a", "an", "the", "for", "with", "of", "to", "build", "make", "explore", "idea", "over", "other"]);
@@ -48,17 +48,29 @@ export async function assembleExploration(idea, flags = {}) {
   const archetype = flags.archetype || null;
   const recipe = resolveRecipe(flags);
 
+  // Lane A search: prefer the engine's indexed /api/search (covers prompts); fall back to client-side.
   let cards = [];
-  try { cards = await fetchLibrary(); } catch { /* offline → no library lane */ }
-  const scored = rankCards(cards, idea, surface, pulled, archetype);
+  let scored, searchedBy;
+  const remote = await searchLibraryRemote(idea, { surface, archetype, limit: pulled });
+  if (remote && Array.isArray(remote.results) && remote.results.length) {
+    scored = remote.results.map((r) => ({
+      card: { appName: r.appName, slug: r.slug || r.handle, archetype: r.archetype, category: r.category, tags: r.tags || [] },
+      score: r.score ?? 0,
+    }));
+    searchedBy = `engine /api/search · indexed, incl. prompts (${remote.backend})`;
+  } else {
+    try { cards = await fetchLibrary(); } catch { /* offline → no library lane */ }
+    scored = rankCards(cards, idea, surface, pulled, archetype);
+    searchedBy = archetype ? `archetype "${archetype}" · client` : "keyword · client";
+  }
   const top = scored[0];
-  // Strong if filtering by archetype (those are design-relevant by construction), or >=2 keyword hits.
-  const strongA = archetype ? scored.length > 0 : (top?.score ?? 0) >= STRONG;
+  const fromEngine = searchedBy.startsWith("engine");
+  // Engine results are relevance-ranked (any result = a real match); client keyword needs >=2 hits.
+  const strongA = (fromEngine || archetype) ? scored.length > 0 : (top?.score ?? 0) >= STRONG;
   const laneAList = scored.map(refLine).join("\n") || (archetype
     ? `  (no ${archetype} designs found for this surface)`
     : "  (no library matches)");
-  const archHint = archetype ? "" : `\n  Tip: search Lane A by ARCHETYPE (design fit, not just domain) — re-run with --archetype "<name>".
-  Available: ${topArchetypes(cards).join(", ")}.`;
+  const archHint = archetype ? "" : `\n  Tip: narrow Lane A by ARCHETYPE (design fit) — re-run with --archetype "<name>".${cards.length ? `\n  Available: ${topArchetypes(cards).join(", ")}.` : ""}`;
 
   let laneB;
   if (recipe.found) {
@@ -95,7 +107,7 @@ DELIVERABLES — explore is NOT complete until BOTH lanes are handled, as SEPARA
   [ ] Lane A — adapt an existing LIBRARY design onto this idea   (${strongA ? "REQUIRED" : "OPTIONAL — no strong fit; decision still required"})
   [ ] Lane B — generate a FRESH design from your recipe          (REQUIRED)
 
-━━━ LANE A · adapt an existing LIBRARY design (searched ${archetype ? `by archetype "${archetype}"` : "by keyword"}) ━━━
+━━━ LANE A · adapt an existing LIBRARY design (searched via ${searchedBy}) ━━━
 ${laneAList}${archHint}
 ${laneADo}
 
@@ -109,7 +121,7 @@ Keep the lanes separate — never blend Lane A into Lane B.`;
     text,
     json: {
       idea, surface, archetype: archetype || null,
-      laneA: { required: strongA, searchedBy: archetype ? "archetype" : "keyword", topMatch: top?.card.slug ?? null, topScore: top?.score ?? 0, designs: scored.map((e) => e.card.slug) },
+      laneA: { required: strongA, searchedBy, topMatch: top?.card.slug ?? null, topScore: top?.score ?? 0, designs: scored.map((e) => e.card.slug) },
       laneB: recipe.found ? { source: "recipe", dir: recipe.dir } : null,
     },
   };

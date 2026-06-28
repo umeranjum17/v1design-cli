@@ -112,6 +112,26 @@ export async function fetchLibrary() {
   return Array.isArray(data) ? data : data.designs || [];
 }
 
+/** Call the engine's indexed /api/search (public, searches every field incl. prompts). Returns the
+ *  ranked results[] or null on error/timeout, so callers can fall back to a client-side search.
+ *  No auth required (public endpoint); resolves apiUrl from env/creds without demanding `connect`. */
+export async function searchLibraryRemote(q, { surface, archetype, limit = 6, timeoutMs = 4500 } = {}) {
+  if (!q || !String(q).trim()) return null;
+  let apiUrl = process.env.V1_DESIGN_API_URL;
+  if (!apiUrl) { try { apiUrl = (await readCredentials())?.apiUrl; } catch {} }
+  apiUrl = (apiUrl || DEFAULT_API_URL).replace(/\/$/, "");
+  const params = new URLSearchParams({ q: String(q), limit: String(limit) });
+  if (surface) params.set("surface", surface);
+  if (archetype) params.set("archetype", archetype);
+  try {
+    const res = await fetch(`${apiUrl}/api/search?${params}`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data?.results)) return null;
+    return { results: data.results, backend: data.backend || "unknown" };
+  } catch { return null; }
+}
+
 /** Download a screen's rendered reference PNG (public /shot route). */
 export async function fetchShot(id, screenName) {
   const { apiUrl, key } = await loadCredentials();
