@@ -39,8 +39,9 @@ Usage:
   v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills] [--allow-project-write]
   v1design status
   v1design logout
-Explore designs for an idea using YOUR local recipe (pulls library inspiration, runs your recipe):
-  v1design explore "an idea" [--pulled M] [--surface web|mobile] [--recipe <dir>] [--json]
+Explore designs for an idea — BOTH lanes (adapt from library + fresh from recipe), then a browser gallery to pick from:
+  v1design explore "an idea" [--surface web|mobile] [--adapt N] [--fresh N] [--recipe <dir>] [--json]
+  v1design gallery [folder] [--no-open]           # assemble + open a browser gallery of the rendered concepts
   v1design recipe init [--out <dir>] [--force]   # scaffold a sample recipe to ./.v1design/recipe
   v1design recipe path                            # show which recipe "explore" resolves
 
@@ -115,7 +116,7 @@ function parse(argv) {
     if (!a.startsWith("--")) { args.push(a); continue; }
     const key = a.slice(2);
     if ([
-      "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "loose-surface",
+      "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "no-open", "loose-surface",
       "install", "run", "yes", "confirm", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css", "tells", "force",
     ].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
@@ -697,6 +698,10 @@ async function main() {
   if (cmd === "explore") {
     const { exploreCommand } = await import("./explore.mjs");
     await exploreCommand([sub, ...rest].filter(Boolean).join(" "), flags); return;
+  }
+  if (cmd === "gallery") {
+    const { galleryCommand } = await import("./gallery.mjs");
+    await galleryCommand(sub, flags); return;
   }
   if (cmd === "recipe") {
     const { recipeCommand } = await import("./recipe.mjs");

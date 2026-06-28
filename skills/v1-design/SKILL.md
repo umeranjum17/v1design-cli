@@ -16,20 +16,30 @@ v1design, this skill is the priority and everything below applies.
 This CLI is a **library + a recipe RUNNER**. Three distinct things:
 1. **Search / pull** — `v1design search` / `library` / `designs get` / `screens get` /
    `theme|tokens|colors get`. Free, read-only, always fine (incl. the user's OWN designs).
-2. **Explore — TWO SEPARATE LANES (both mandatory)** — `v1design explore "<idea>"`. The DEFAULT for
-   "explore designs / generate new ones". It returns TWO lanes; **explore is NOT complete until BOTH
-   are handled**, kept apart (never blend):
-   - **Lane A — from the LIBRARY**: existing v1design designs matching the idea — pull/adapt the idea
-     onto one (reuse, don't generate). The CLI marks Lane A **REQUIRED** when there's a real match
-     (and prints the exact `designs get`/`theme get` commands for the top one — run them). When there's
-     **no strong fit** the CLI marks it OPTIONAL — but you must STILL state an explicit decision
-     (adapt-the-closest-as-a-stretch, or skip-with-reason). **Never silently drop Lane A** — that is
-     the #1 failure mode this gate exists to stop.
-   - **Lane B — FRESH from the recipe**: run the user's LOCAL recipe (`./.v1design/recipe` →
-     `~/.v1design/recipe` → `V1DESIGN_RECIPE_DIR`) to GENERATE brand-new designs **on its own** (do NOT
-     feed Lane A in). No recipe → Lane B unavailable; `v1design recipe init` scaffolds one.
-   The CLI prints a DELIVERABLES checklist + a DONE-WHEN gate — satisfy it before declaring explore done.
-   Spends no engine credits; the CLI ships no doctrine. Present A and B separately so the user compares.
+2. **Explore — TWO SEPARATE LANES → a browser gallery the user picks from** — `v1design explore "<idea>"`.
+   The DEFAULT for "explore designs / generate new ones". The whole experience, end to end:
+   - **FRESH FOLDER, always.** The CLI prints a per-idea folder (`v1-explore/<slug>[-<surface>]/`).
+     `mkdir -p` it and put EVERY concept HTML, PNG render, and `manifest.json` there. **Never muddle an
+     existing folder** — that has burned the user repeatedly.
+   - **GROUND IT in the user's context first.** Skim their repo (README, package.json, what they're
+     building, who their end-users are). Both lanes must fit THEIR product AND their users — not just the
+     bare idea string. Respect the surface they asked for (`--surface web|mobile`).
+   - **Lane A — adapt from the LIBRARY** (default **2**): existing v1design designs matching the idea —
+     pull/adapt the idea onto each (REUSE the real palette/type/components, don't generate). Domain need
+     NOT match — a dating app's UI is a fine reference for a writing app if the *concept/craft* is
+     adaptable. REQUIRED when there's a real match (the CLI prints the `designs get`/`theme get`
+     commands); when no strong fit it's OPTIONAL but you must STILL state a decision. **Never silently
+     drop Lane A** — the #1 failure mode this gate stops.
+   - **Lane B — FRESH from the recipe** (default **2**): run the user's LOCAL recipe (`./.v1design/recipe`
+     → `~/.v1design/recipe` → `V1DESIGN_RECIPE_DIR`) to GENERATE brand-new designs **on its own** (do NOT
+     feed Lane A in), each a distinct design movement. No recipe → Lane B unavailable; `v1design recipe init`.
+   - **RENDER every concept to a PNG** in the folder (your headless browser — playwright/puppeteer), and
+     write `manifest.json` = `[{file,name,style,source,pitch,lane:"A"|"B",palette,fonts}]`.
+   - **OUTPUT IT: `v1design gallery <folder>`** — assembles a polished browser page (Lane A vs Lane B,
+     every option side by side) and OPENS it. The user flips through, **picks one, and builds their app
+     from it**. Explore is NOT done until the gallery has been opened for the user.
+   - **Default 2 adapted + 2 fresh** unless the user asks for more (`--adapt N` / `--fresh N`).
+   Spends no engine credits; the CLI ships no doctrine. Keep the lanes separate — never blend A into B.
 3. **Studio forge (engine, spends credits)** — `v1design studio "<brief>" --yes` (was
    `v1design create`) and `v1design compose`. GENERATE on the engine and SPEND CREDITS; run ONLY
    on an explicit "studio/forge" ask (`--yes`; MCP tools require `confirm:true`).

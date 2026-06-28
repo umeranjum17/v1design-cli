@@ -32,7 +32,8 @@ function refLine(e) {
   const c = e.card;
   const tags = (c.tags || []).slice(0, 4).join(", ");
   const a = c.archetype ? ` · ⟨${c.archetype}⟩` : "";
-  return `  - ${c.appName} (${c.slug})${a}${c.category ? ` · ${c.category}` : ""}${tags ? ` · ${tags}` : ""}  [match ${e.score}]`;
+  const rel = (e.relevance != null) ? `relevance ${e.relevance}%` : `match ${e.score}`;
+  return `  - ${c.appName} (${c.slug})${a}${c.category ? ` · ${c.category}` : ""}${tags ? ` · ${tags}` : ""}  [${rel}]`;
 }
 
 function topArchetypes(cards, n = 8) {
@@ -44,9 +45,13 @@ function topArchetypes(cards, n = 8) {
 /** Assemble the two-lane explore output (pure; CLI + MCP share it). */
 export async function assembleExploration(idea, flags = {}) {
   const surface = flags.surface || null;
-  const pulled = Number(flags.pulled ?? 5);
+  const adapt = Math.max(1, Number(flags.adapt ?? 2));   // Lane A count (default 2 unless the user asks for more)
+  const fresh = Math.max(1, Number(flags.fresh ?? 2));   // Lane B count (default 2)
+  const pulled = Number(flags.pulled ?? Math.max(5, adapt + 3));
   const archetype = flags.archetype || null;
   const recipe = resolveRecipe(flags);
+  const slug = (String(idea).toLowerCase().match(/[a-z0-9]+/g) || ["idea"]).slice(0, 4).join("-");
+  const folder = `v1-explore/${slug}${surface ? `-${surface}` : ""}`;   // FRESH per-idea folder; never muddle an existing one
 
   // Lane A search: prefer the engine's indexed /api/search (covers prompts); fall back to client-side.
   let cards = [];
@@ -56,6 +61,7 @@ export async function assembleExploration(idea, flags = {}) {
     scored = remote.results.map((r) => ({
       card: { appName: r.appName, slug: r.slug || r.handle, archetype: r.archetype, category: r.category, tags: r.tags || [] },
       score: r.score ?? 0,
+      relevance: r.relevance,
     }));
     searchedBy = `engine /api/search · indexed, incl. prompts (${remote.backend})`;
   } else {
@@ -90,38 +96,50 @@ ${manifest.trim().split("\n").map((l) => "  " + l).join("\n")}
   }
 
   const laneADo = strongA
-    ? `  DO THIS (do NOT skip — there IS a real ${archetype ? archetype + " " : ""}match):
-    1. v1design designs get ${top.card.slug}
-    2. v1design theme get ${top.card.slug} --css
-    3. Adapt "${idea}" onto ${top.card.appName}'s REAL system/palette/components and produce an artifact (e.g. a rendered concept). REUSE — do not author from scratch here.`
-    : `  No STRONG library match — the matches above are tangential (different domain; best ${top ? top.score : 0} hit${(top?.score ?? 0) === 1 ? "" : "s"}). Lane A is OPTIONAL here. You MUST still make an explicit decision and state it: (a) re-run with --archetype "<name>" to pull design-relevant matches and adapt one, (b) adapt the closest match anyway (note it's a stretch), or (c) skip Lane A and say "skipped — no close library fit". NEVER silently drop it.`;
+    ? `  DO THIS (do NOT skip — there IS a real ${archetype ? archetype + " " : ""}match). Adapt the TOP ${adapt}:
+    1. v1design designs get ${top.card.slug}   (then: v1design theme get ${top.card.slug} --css)
+    2. Adapt "${idea}" onto ${top.card.appName}'s REAL system/palette/components → a rendered concept in ${folder}/. REUSE — do not author from scratch.
+    3. Repeat for the next ${Math.max(0, adapt - 1)} match(es) listed above. RENDER each to a PNG in ${folder}/.`
+    : `  No STRONG library match — the matches above are tangential (best ${top ? (top.relevance != null ? top.relevance + "% relevance" : top.score + " hits") : 0}). Lane A is OPTIONAL here. You MUST still make an explicit decision and state it: (a) re-run with --archetype "<name>" to pull design-relevant matches, (b) adapt the closest anyway (note it's a stretch), or (c) skip Lane A with reason. NEVER silently drop it.`;
 
   const doneWhen = strongA
-    ? "you have produced BOTH a Lane-A adaptation artifact AND a Lane-B fresh artifact (two separate deliverables)."
-    : "you have produced a Lane-B fresh artifact AND stated an explicit Lane-A decision (archetype-search, adapted-closest, or skipped-with-reason). A silent Lane-A drop = explore NOT done.";
+    ? `you've produced ${adapt} Lane-A adaptation(s) AND ${fresh} Lane-B fresh concept(s), RENDERED each to a PNG in ${folder}/, written ${folder}/manifest.json, and run \`v1design gallery ${folder}\` so the user can pick one in their browser.`
+    : `you've produced ${fresh} Lane-B fresh concept(s) rendered to PNGs in ${folder}/ + an explicit Lane-A decision, written ${folder}/manifest.json, and run \`v1design gallery ${folder}\`. A silent Lane-A drop = explore NOT done.`;
 
   const text =
 `v1design explore — "${idea}"${archetype ? `  (Lane A archetype: ${archetype})` : ""}
 
-DELIVERABLES — explore is NOT complete until BOTH lanes are handled, as SEPARATE artifacts:
-  [ ] Lane A — adapt an existing LIBRARY design onto this idea   (${strongA ? "REQUIRED" : "OPTIONAL — no strong fit; decision still required"})
-  [ ] Lane B — generate a FRESH design from your recipe          (REQUIRED)
+▶ WORK IN A FRESH FOLDER (never muddle an existing one):
+  ${folder}/      — mkdir -p it; EVERY concept HTML, PNG render, and manifest.json goes here.
 
-━━━ LANE A · adapt an existing LIBRARY design (searched via ${searchedBy}) ━━━
+▶ GROUND IT in the USER's context first: skim their repo (README, package.json, what they're building,
+  who their end-users are). BOTH lanes must fit THEIR product AND their users — not just the idea string.
+
+DELIVERABLES — explore is NOT done until BOTH lanes are handled AND shown to the user:
+  [ ] Lane A — adapt ${adapt} existing LIBRARY design(s) onto this idea   (${strongA ? "REQUIRED" : "OPTIONAL — no strong fit; decision still required"})
+  [ ] Lane B — generate ${fresh} FRESH design(s) from your recipe          (REQUIRED)
+  [ ] RENDER every concept to a PNG in ${folder}/ (your headless browser — playwright / puppeteer)
+  [ ] Write ${folder}/manifest.json  →  [{file,name,style,source,pitch,lane:"A"|"B",palette,fonts}]
+  [ ] OPEN the gallery for the user:  v1design gallery ${folder}
+      (assembles a browser page of all options — Lane A vs Lane B — and opens it; the user picks one)
+
+━━━ LANE A · adapt ${adapt} existing LIBRARY design(s) (searched via ${searchedBy}) ━━━
 ${laneAList}${archHint}
 ${laneADo}
 
-━━━ LANE B · GENERATE FRESH from your recipe ━━━
+━━━ LANE B · GENERATE ${fresh} FRESH design(s) from your recipe ━━━
 ${laneB}
 
 DONE WHEN: ${doneWhen}
-Keep the lanes separate — never blend Lane A into Lane B.`;
+  Then the user PICKS one in the gallery and builds their app from it.
+Keep the lanes separate — never blend Lane A into Lane B. Default ${adapt} adapted + ${fresh} fresh unless the user asks for more.`;
 
   return {
     text,
     json: {
-      idea, surface, archetype: archetype || null,
-      laneA: { required: strongA, searchedBy, topMatch: top?.card.slug ?? null, topScore: top?.score ?? 0, designs: scored.map((e) => e.card.slug) },
+      idea, surface, archetype: archetype || null, folder, adapt, fresh,
+      gallery: `v1design gallery ${folder}`,
+      laneA: { required: strongA, searchedBy, topMatch: top?.card.slug ?? null, topScore: top?.score ?? 0, topRelevance: top?.relevance ?? null, designs: scored.map((e) => e.card.slug) },
       laneB: recipe.found ? { source: "recipe", dir: recipe.dir } : null,
     },
   };
@@ -130,7 +148,7 @@ Keep the lanes separate — never blend Lane A into Lane B.`;
 /** CLI entry for `v1design explore "<idea>"`. */
 export async function exploreCommand(idea, flags = {}) {
   if (!idea || !String(idea).trim()) {
-    throw new Error('Usage: v1design explore "<idea>" [--archetype "<name>"] [--pulled M] [--surface web|mobile] [--recipe <path>] [--json]');
+    throw new Error('Usage: v1design explore "<idea>" [--surface web|mobile] [--adapt N] [--fresh N] [--archetype "<name>"] [--recipe <path>] [--json]\nThen render the concepts into the printed folder and run: v1design gallery <folder>  (opens a browser gallery to pick from).');
   }
   const { text, json } = await assembleExploration(idea, flags);
   if (flags.json) console.log(JSON.stringify(json, null, 2));
