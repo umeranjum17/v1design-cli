@@ -271,6 +271,16 @@ function searchLibraryCards(cards: any[], query: string, options: { surface?: st
   return (strict.length ? strict : ranked).map((entry) => entry.card);
 }
 
+// In-process MEMORY CACHE of the public library catalogue (identical for every caller). Lets the
+// agent search + refine instantly without re-fetching the whole catalogue on each call. 10-min TTL.
+let _libCache: { at: number; data: any } | null = null;
+async function cachedLibrary(client: EngineHttpClient): Promise<any> {
+  if (_libCache && Date.now() - _libCache.at < 600_000) return _libCache.data;
+  const data = await client.json("GET", "/api/library");
+  _libCache = { at: Date.now(), data };
+  return data;
+}
+
 /** Build the MCP server. `client` is how its tools reach the engine (stdio → remote; HTTP → loopback). */
 export function buildServer(client: EngineHttpClient): McpServer {
   const server = new McpServer({ name: "v-1.design", version: "1.0.0" }, { instructions: INSTRUCTIONS });
@@ -279,7 +289,7 @@ export function buildServer(client: EngineHttpClient): McpServer {
     description: "Search the v-1.design Library catalog by app idea, tags, category, or surface. For a brand-new project, call this with limit:5, present the five candidate links, and ask the user which one resonates before pulling or editing unless they explicitly delegated the choice.",
     inputSchema: { query: z.string().default(""), surface: z.enum(["web", "mobile"]).optional(), limit: z.number().int().min(1).max(50).optional() },
   }, async ({ query, surface, limit }) => {
-    const j = await client.json("GET", "/api/library");
+    const j = await cachedLibrary(client);
     const max = limit ?? 8;
     const matches = searchLibraryCards(j.designs ?? [], query, { surface }).slice(0, max);
     if (surface && matches.length < max) {
@@ -311,21 +321,32 @@ export function buildServer(client: EngineHttpClient): McpServer {
   // pull handles, mix and match. Pull a result with get_design / get_screen_code /
   // get_tokens / get_theme using its handle (slug, slug/Screen, slug#palette, …).
   server.registerTool("search", {
-    description: "Search the WHOLE verified v-1.design library at any granularity — designs, individual screens, palettes (by colour like 'teal'), fonts, and components. Returns ranked handles you then pull (get_design/get_screen_code/get_tokens) and mix-and-match. Keep searching + pulling; treat 'what should this look like?' as retrieval. type filters to one kind; surface to web|mobile.",
-    inputSchema: { q: z.string(), type: z.enum(["design", "screen", "palette", "font", "component"]).optional(), surface: z.enum(["web", "mobile"]).optional(), limit: z.number().int().min(1).max(50).optional() },
-  }, async ({ q, type, surface, limit }) => {
+    description: "Search the WHOLE verified v-1.design library at any granularity — designs, individual screens, palettes (by colour like 'teal'), fonts, and components. Returns ranked handles you then pull (get_design/get_screen_code/get_tokens) and mix-and-match. Keep searching + pulling; treat 'what should this look like?' as retrieval. type filters to one kind; surface to web|mobile; group=true returns the same function across visual archetype VARIANTS to compare.",
+    inputSchema: { q: z.string(), type: z.enum(["design", "screen", "palette", "font", "component"]).optional(), surface: z.enum(["web", "mobile"]).optional(), limit: z.number().int().min(1).max(50).optional(), group: z.boolean().optional().describe("group results by archetype — same function across visual variants; auto-on for variant/style queries") },
+  }, async ({ q, type, surface, limit, group }) => {
     const params = new URLSearchParams({ q });
     if (type) params.set("type", type);
     if (surface) params.set("surface", surface);
     params.set("limit", String(limit ?? 12));
+    // Variant grouping: explicit, or auto-on when the query is about styles/alternatives. The engine
+    // groups the same FUNCTION across visual archetypes so you can compare, not just grab the top hit.
+    const shouldGroup = group || /\b(variant|variants|archetype|alternative|alternatives|style|styles|look|theme|vibe)\b/i.test(q);
+    if (shouldGroup) params.set("group", "archetype");
     let res: any = null;
     try { res = await client.json("GET", `/api/search?${params.toString()}`); } catch { /* older engine */ }
     if (!res || !res.results) {
-      const j = await client.json("GET", "/api/library");
+      const j = await cachedLibrary(client);
       const m = searchLibraryCards(j.designs ?? [], q, { surface }).slice(0, limit ?? 12);
       return text(m.length ? m.map((d: any) => `- [design] ${d.appName} (${d.slug})`).join("\n") : `No matches for "${q}".`);
     }
     if (!res.results.length) return text(`No matches for "${q}".`);
+    if (Array.isArray(res.groups) && res.groups.length) {
+      const grouped = res.groups.map((g: any) => {
+        const designs = (g.designs ?? []).map((d: any) => `    - ${d.appName ?? d.name} · pull: ${d.handle ?? d.slug}`).join("\n");
+        return `▌ ${g.archetype}\n${designs}`;
+      }).join("\n\n");
+      return text(`${res.count} matches for "${q}" — variants grouped by archetype (compare, then pull the closest fit):\n\n${grouped}`);
+    }
     const rows = res.results.map((r: any) => {
       const what = r.type === "design" ? r.appName
         : r.type === "screen" ? `${r.design} · ${r.screen} (${r.surface})`
