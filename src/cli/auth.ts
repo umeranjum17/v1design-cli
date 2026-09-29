@@ -75,7 +75,7 @@ export async function login(): Promise<void> {
   // same-machine loopback callback with V1_DESIGN_LOOPBACK=1.
   //
   // Deploy order matters: ship the web /authorize change BEFORE the engine. If the engine has the
-  // /auth/device/poll route but the web bundle is still the old one (no `session` support), the
+  // /auth/device/start|poll routes but the web bundle is still the old one (no `session` support), the
   // browser can't complete the flow and the poll never 404s, so the loopback fallback below can't
   // trigger. Web-first deploy avoids that window; the V1_DESIGN_LOOPBACK escape hatch covers the rest.
   if (process.env.V1_DESIGN_LOOPBACK === "1") {
@@ -96,9 +96,10 @@ export async function login(): Promise<void> {
 }
 
 /**
- * Device (polling) flow — no localhost callback. The CLI mints a high-entropy session id, opens the
- * authorize page, and polls the engine until the user authorizes. The code the engine returns is
- * still PKCE-bound, so it is useless without the verifier that never leaves this process.
+ * Device (polling) flow — no localhost callback. The CLI mints a high-entropy session id, registers
+ * it with its user code at /auth/device/start, opens the authorize page, and polls the engine until
+ * the user authorizes. The code the engine returns is still PKCE-bound, so it is useless without the
+ * verifier that never leaves this process.
  */
 async function deviceLogin(apiUrl: string, webUrl: string): Promise<void> {
   let sessionId = base64url(randomBytes(32));
