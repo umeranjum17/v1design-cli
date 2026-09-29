@@ -665,7 +665,7 @@ async function createDesign(brief, flags) {
     vibe: flags.vibe,
   };
   const created = await request("POST", "/designs", body, "json");
-  const share = `https://v-1.design/share/${created.projectId}`;
+  const share = `${WEB_URL}/share/${created.projectId}`;
   if (flags.wait) {
     await waitForDesign(created.projectId, flags);
     return;
