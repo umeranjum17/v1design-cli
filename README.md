@@ -118,6 +118,7 @@ The v-1.design engine, billing, generation pipeline, and private application cod
 
 ```bash
 npm install
+npm test
 npm run typecheck
 npm run check:bin
 npm run check:pack-install
