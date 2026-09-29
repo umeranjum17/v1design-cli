@@ -13,22 +13,20 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - run: npm install -g npm@latest
+      # Pinned: npm 11.5.1 is the first version with npm Trusted Publishing (OIDC) support.
+      - run: npm install -g npm@11.5.1
       - run: npm --version
       - run: npm ci
       - run: npm run typecheck
       - run: npm run check:bin
       - run: npm run check:pack-install
-      # Auth via an npm Automation access token stored as the repo secret NPM_TOKEN.
-      # (Trusted Publishing is the no-secret alternative, but requires the npmjs-side
-      # publisher config to match exactly; the token path is deterministic.)
+      # Auth via npm Trusted Publishing (OIDC): the @v1design/cli package on npmjs
+      # must list this repo + workflow file as a trusted publisher. No tokens or secrets.
       - name: Publish to npm
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
