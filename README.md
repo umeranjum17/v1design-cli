@@ -96,8 +96,8 @@ You can also use the lower-level discovery + pull commands directly:
 v1design library suggest "book app" --surface web --limit 5 --open
 v1design library search "book app" --surface web
 v1design pull "https://v-1.design/library/<slug>"
-v1design designs get "https://v-1.design/studio/<id>"
-v1design screens get "https://v-1.design/studio/<id>" Home
+v1design designs get "https://v-1.design/share/<id>"
+v1design screens get "https://v-1.design/share/<id>" Home
 ```
 
 For a brand-new project, start with `library suggest`: it shows the top five matching Library references, opens their pages when `--open` is passed, and gives the agent a clear pause point to ask which direction resonates before pulling artifacts or writing code.

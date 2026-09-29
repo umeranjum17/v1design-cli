@@ -38,6 +38,7 @@
     "v1design-agent": "bin/agent.mjs"
   },
   "scripts": {
+    "test": "tsx --test 'test/**/*.test.mjs'",
     "typecheck": "tsc --noEmit",
     "check:bin": "node bin/cli.mjs help && node bin/agent.mjs help",
     "check:pack-install": "node scripts/check-packed-install.mjs",

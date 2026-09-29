@@ -665,16 +665,16 @@ async function createDesign(brief, flags) {
     vibe: flags.vibe,
   };
   const created = await request("POST", "/designs", body, "json");
-  const studio = `https://v-1.design/studio/${created.projectId}`;
+  const share = `https://v-1.design/share/${created.projectId}`;
   if (flags.wait) {
     await waitForDesign(created.projectId, flags);
     return;
   }
-  if (flags.json) printJson({ ...created, studioUrl: studio });
+  if (flags.json) printJson({ ...created, shareUrl: share });
   else {
     console.log(`Started ${created.appName}`);
     console.log(`Project: ${created.projectId}`);
-    console.log(`Open: ${studio}`);
+    console.log(`Open: ${share}`);
     console.log(`Run: v1design designs get ${created.projectId}`);
   }
 }
