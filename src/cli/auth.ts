@@ -38,7 +38,7 @@ function openBrowser(url: string) {
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 2000;
 
-/** Thrown when the engine has no /auth/device/poll route (older deploy) so we can fall back to loopback. */
+/** Thrown when the engine has no device-flow routes (older deploy) so we can fall back to loopback. */
 class DeviceUnsupported extends Error {}
 
 function sleep(ms: number): Promise<void> {
@@ -101,14 +101,30 @@ export async function login(): Promise<void> {
  * still PKCE-bound, so it is useless without the verifier that never leaves this process.
  */
 async function deviceLogin(apiUrl: string, webUrl: string): Promise<void> {
-  const sessionId = base64url(randomBytes(32));
+  let sessionId = base64url(randomBytes(32));
   const userCode = makeUserCode();
   const codeVerifier = base64url(randomBytes(32));
   const codeChallenge = base64url(createHash("sha256").update(codeVerifier).digest());
+  // Register the session + user code BEFORE opening the browser: the authorize page shows the code the
+  // engine stored (not anything in the URL), so a crafted link can't choose the code you're asked to match.
+  const start = () =>
+    fetch(`${apiUrl}/auth/device/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session: sessionId, user_code: userCode }),
+    });
+  let started = await start();
+  if (started.status === 409) {
+    // Session id collision (practically impossible with 256-bit ids) — mint a fresh one and retry once.
+    sessionId = base64url(randomBytes(32));
+    started = await start();
+  }
+  if (started.status === 404) throw new DeviceUnsupported();
+  if (started.status === 429) throw new Error("authorization rate-limited — wait a minute and run `v1design connect` again");
+  if (!started.ok) throw new Error((await started.text()).slice(0, 300) || "could not start authorization");
   const authorizeUrl =
     `${webUrl}/authorize?session=${encodeURIComponent(sessionId)}` +
     `&client=v1design` +
-    `&user_code=${encodeURIComponent(userCode)}` +
     `&code_challenge=${encodeURIComponent(codeChallenge)}` +
     `&code_challenge_method=S256`;
 
