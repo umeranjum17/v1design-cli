@@ -20,7 +20,7 @@ When in doubt: search/pull or explore — never studio.
 
 WORKFLOW: stay non-intrusive until the user explicitly asks to use v-1.design in the project. It is okay to connect, check status, and search_library as read-only discovery. Do not create a design, pull artifacts, fetch screen code into files, or edit the target repo unless the user asks to pull/use/build/integrate with v-1.design. If the user provides an app idea but no design link and asks to use v-1.design in a brand-new project, search_library first with limit:5 and the right surface, show the five Library options/links to the user, ask which one resonates, and wait for their choice before pulling artifacts or building. Use surface:"web" for browser/Next.js work and surface:"mobile" for React Native/Expo work. If the user explicitly delegates the choice to you, compare the candidates and state which reference you chose before building. create_studio_design with a product brief generates a new design on the user's account (the engine forge — spends credits, confirm:true required); the finished bundle (design tokens + every screen's TSX) is returned in that same call. add_screen adds a screen; get_design pulls one; list_designs lists the user's own designs.
 
-Every result also includes a studio URL (https://…/studio/<id>) — SHARE IT with the user so they can open the design in their browser to see it rendered and tweak it visually.
+Every result also includes a share URL (https://…/share/<id>) — SHARE IT with the user so they can open the design in their browser to see it rendered.
 
 HOW TO REPRODUCE FAITHFULLY (like Figma's Dev Mode): the engine is the renderer and the source of truth. get_screen_code returns the engine-RENDERED reference image of a screen INLINE — you see exactly how it should look with no rendering capability of your own — plus the screen's TSX. Build to match the image by reading the EXACT values (sizes, spacing, colors as tokens, radii, weights) from the TSX/design-tokens.json — do not eyeball or "improve". There is no required screenshot-diff loop; precise values + the image you're handed are what guarantee the match (if you happen to be able to render your build, comparing it to the image is a nice self-check, not a requirement). In every render, the top status-bar row (time + signal/wifi/battery) and the bottom tab bar are MOCKUP CHROME, not app content: the OS draws the status bar (reserve it with a safe-area inset, never hand-draw it) and the tab bar is shared chrome you build ONCE and reuse.
 
@@ -129,10 +129,11 @@ function reporter(extra: Extra) {
 }
 const footer = (s: any) => (s ? `\n\n---\n_status: ${s.ready} ready · ${s.pending} pending · ${s.failed} failed · ${s.locked} locked_` : "");
 
-// Where the human can open a design in the browser (the web studio). The engine knows the web app's
+// Where the human can open a design in the browser (a share link — the /studio/<id> pages
+// were removed from the web app and redirect to /library). The engine knows the web app's
 // URL via WEB_APP_URL; default to the production host.
 const WEB_URL = (process.env.WEB_APP_URL || "https://v-1.design").replace(/\/+$/, "");
-const studioUrl = (id: string) => `${WEB_URL}/studio/${id}`;
+const shareUrl = (id: string) => `${WEB_URL}/share/${id}`;
 const DESIGN_REF_ALIASES: Record<string, string> = {
   "aetra-deploy": "aetra-a3e7c2b1",
 };
@@ -166,7 +167,7 @@ function designRef(input: string): string {
   }
   return normalize(raw.replace(/^\/+|\/+$/g, ""));
 }
-const openLine = (id: string) => `\n\n→ Open in v-1.design: ${studioUrl(id)} or ${WEB_URL}/library/${encodeURIComponent(id)}`;
+const openLine = (id: string) => `\n\n→ Open in v-1.design: ${shareUrl(id)} or ${WEB_URL}/library/${encodeURIComponent(id)}`;
 
 function librarySearchTokenGroups(query: string): string[][] {
   return String(query || "")
@@ -350,7 +351,7 @@ export function buildServer(client: EngineHttpClient): McpServer {
         st.failed ? `${st.failed} failed` : "",
       ].filter(Boolean).join(", ");
       const count = `${ready} screen${ready === 1 ? "" : "s"}${extra ? ` (+${extra})` : ""}`;
-      return `- "${d.appName}" (${count}) · ${String(d.brief).slice(0, 60)}\n    ${studioUrl(d.id)}  ·  id: ${d.id}`;
+      return `- "${d.appName}" (${count}) · ${String(d.brief).slice(0, 60)}\n    ${shareUrl(d.id)}  ·  id: ${d.id}`;
     });
     return text(rows.length ? `Your designs:\n${rows.join("\n")}` : "No designs on your account yet. Use search_library to pull a library design (don't create one unless the user explicitly asked).");
   });
@@ -364,7 +365,7 @@ export function buildServer(client: EngineHttpClient): McpServer {
     // slim=1: the bundle omits inlined per-screen TSX (it blows the MCP token cap even on 3 screens) —
     // the agent pulls each screen's source + rendered image via get_screen_code, as the guide says.
     const body = await client.text(`/designs/${encodeURIComponent(ref)}?format=${fmt}&slim=1`);
-    // Keep JSON pure (parseable); append the openable studio URL only to the markdown bundle.
+    // Keep JSON pure (parseable); append the openable share URL only to the markdown bundle.
     return text(fmt === "json" ? body : body + openLine(ref));
   });
 
@@ -421,7 +422,7 @@ export function buildServer(client: EngineHttpClient): McpServer {
     if (!confirm) return errText("Refusing to forge a design without confirmation. The studio forge GENERATES a new design on the engine and SPENDS CREDITS — the default is library search + pull, or `explore` to generate from the user's local recipe (no engine credits). Only call create_studio_design again with confirm:true when the USER has EXPLICITLY asked for the studio forge.");
     const created = await client.json("POST", "/designs", { brief, target, mode, vibe, url });
     const pid = created.projectId;
-    if (wait === false) return text(`Started generating "${created.appName}". projectId: ${pid}\n→ Watch it draft live in the studio: ${studioUrl(pid)}\nCall wait_for_design("${pid}") to receive the finished bundle here.`);
+    if (wait === false) return text(`Started generating "${created.appName}". projectId: ${pid}\n→ Open the finished design here when ready: ${shareUrl(pid)}\nCall wait_for_design("${pid}") to receive the finished bundle here.`);
     await client.streamUntilDone(pid, reporter(extra as Extra));
     const fmt = format === "json" ? "json" : "md";
     const body = await client.text(`/designs/${pid}?format=${fmt}&slim=1`);
