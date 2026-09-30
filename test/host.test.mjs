@@ -15,7 +15,7 @@ import {
   signinFailureMessage,
   socketPathFor,
 } from "../src/cli/host.mjs";
-import { createRelayClient } from "../src/cli/host-relay.ts";
+import { createHostClient } from "../src/cli/host-relay.ts";
 
 test("host: node check accepts the kit engine range and rejects the rest", () => {
   for (const v of ["22.22.3", "22.30.0", "24.15.0", "24.20.1", "25.9.0", "25.10.2", "26.0.0"]) {
@@ -63,15 +63,12 @@ test("host: an expired device code reads as expirable with a retry", () => {
   assert.match(signinFailureMessage({ state: "failed", via: "code", why: "declined" }), /cancelled/i);
 });
 
-test("host: relay stub is offline-tolerant when S2 is not deployed", async () => {
-  process.env.V1_DESIGN_API_URL = "http://127.0.0.1:9"; // nothing listens here
-  try {
-    const relay = createRelayClient();
-    assert.equal(await relay.snapshot("nope"), null);
-    await relay.postView("nope", "", { state: "waiting", via: "code" }); // must not throw
-  } finally {
-    delete process.env.V1_DESIGN_API_URL;
-  }
+test("host: the S2 client is offline-tolerant when the engine is unreachable", async () => {
+  const client = createHostClient({ baseUrl: "http://127.0.0.1:9", hostKey: "k", hostId: "h", timeoutMs: 500 });
+  assert.equal(await client.poll(), null);
+  assert.equal(await client.heartbeat({ state: "signed-out" }), null);
+  assert.equal(await client.claim("nope"), null);
+  assert.equal(await client.submit("nope", { error: "x" }), false);
 });
 
 test("host: kit starts on the fake gateway with member me signed out", async () => {
