@@ -37,9 +37,9 @@ test("host: short stateDir passes the socket guard, long ones fail fast", () => 
   );
 });
 
-test("host: kit options carry the openai allowlist fix and a deny-all gate", async () => {
+test("host: kit options carry a deny-all gate and no plugin workaround", async () => {
   const o = buildKitOptions({ stateDir: "/tmp/v1h", engineDir: "/tmp/v1host" });
-  assert.deepEqual(o.config, { plugins: { allow: ["openai"] } });
+  assert.ok(!("config" in o), "no plugins.allow workaround: the kit merges the openai provider plugin itself");
   assert.deepEqual(o.tools, []);
   const gate = await o.host.gate({}, "exec", {}, { builtin: true });
   assert.equal(gate.allow, false);
