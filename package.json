@@ -46,8 +46,8 @@
     "prepack": "npm run typecheck && npm run check:bin"
   },
   "dependencies": {
-    "@byokit/openclaw": "0.3.0",
-    "@byokit/secrets": "0.3.0",
+    "@byokit/openclaw": "0.3.2",
+    "@byokit/secrets": "0.4.0",
     "@clack/prompts": "^0.7.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "dotenv": "^17.4.2",
