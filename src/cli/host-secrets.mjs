@@ -1,75 +1,52 @@
 // Sealed storage for the host key (Studio S3, firstmate review).
 //
 // The host key is a credential, so it goes through BYOKit (@byokit/secrets),
-// never a plaintext file:
-//   - on a machine with a keyring: osKeyringSeal (data key in the OS keyring,
-//     sealed envelope in host-key.json);
-//   - where there is none: the kit-documented hostKeySeal, with the 32-byte
-//     host key from an app-owned 0600 file kept separate from the sealed data.
-// The sealed file records which seal wrote it; a wrong seal fails closed
-// (auth-failed). The key is never logged.
+// never a plaintext file: osKeyringSeal auto-selects the OS keyring and falls
+// back to the kit's persistent owner-only host-key file where no usable
+// keyring exists (0700 dir, 0600 files). The sealed file records which seal
+// wrote it; a wrong seal fails closed (auth-failed). The key is never logged.
+//
+// Backup warning: the kit's host-key directory holds the only copy of the
+// file key — keep it OUT of sealed-store backups (a backup bundled with its
+// key decrypts on its own), or losing it makes the stores unrecoverable.
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { randomBytes } from "node:crypto";
-import { hostKeySeal, osKeyringSeal } from "@byokit/secrets";
+import { hostKeyFileSeal, osKeyringSeal } from "@byokit/secrets";
 
 export const SEAL_SERVICE = "v1design-host";
 export const hostKeyFile = (home = homedir()) => join(home, ".v1design", "host-key.json");
-export const hostMasterKeyFile = (home = homedir()) => join(home, ".v1design", "host-master.key");
-
-const NO_KEYRING = new Set(["unavailable", "unsupported"]);
-
-function isNoKeyring(e) {
-  return Boolean(e && (NO_KEYRING.has(e.code) || /keyring|secret service/i.test(e.message || "")));
-}
 
 async function ensureSecureDir(dir) {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(dir, 0o700);
 }
 
-/** Raw 32-byte host key for the hostKeySeal fallback, generated once, 0600. */
-export async function hostMasterKey(home = homedir()) {
-  const path = hostMasterKeyFile(home);
-  try {
-    const raw = await readFile(path);
-    if (raw.length === 32) return new Uint8Array(raw);
-  } catch {
-    // fall through to generate
-  }
-  const key = randomBytes(32);
-  await ensureSecureDir(dirname(path));
-  await writeFile(path, key, { mode: 0o600 });
-  await chmod(path, 0o600);
-  return new Uint8Array(key);
-}
-
 /**
- * Resolve the seal. Auto mode prefers the OS keyring and falls back to the
- * kit-documented host-key seal where there is none. `mode` forces
- * "os-keyring" or "host-key" (V1DESIGN_HOST_SEAL does the same).
- * `keyring` injects a fake backend (tests only — never the owner's keyring).
+ * Resolve the seal. Auto mode is the kit default: OS keyring first, persistent
+ * host-key file where there is none. `mode` forces "os-keyring" (no fallback)
+ * or "host-key" (file seal directly); V1DESIGN_HOST_SEAL does the same.
+ * `keyring` injects a fake backend and `stateDir` an app-owned key root
+ * (tests only — never the owner's keyring or state dir).
  */
 export async function loadSeal(o = {}) {
-  const home = o.home || homedir();
   const mode = o.mode || process.env.V1DESIGN_HOST_SEAL || "auto";
-  const osSeal = () =>
-    o.keyring
-      ? osKeyringSeal({ service: SEAL_SERVICE, keyring: o.keyring })
-      : osKeyringSeal({ service: SEAL_SERVICE });
+  const service = SEAL_SERVICE;
+  const stateDir = o.stateDir;
   if (mode === "host-key") {
-    return { seal: hostKeySeal({ key: await hostMasterKey(home), service: SEAL_SERVICE }), via: "host-key" };
+    const seal = hostKeyFileSeal({ service, ...(stateDir ? { stateDir } : {}) });
+    return { seal, via: seal.mode };
   }
   if (mode !== "os-keyring" && mode !== "auto") {
     throw new Error(`bad seal mode ${mode} (want auto, os-keyring or host-key)`);
   }
-  try {
-    return { seal: osSeal(), via: "os-keyring" };
-  } catch (e) {
-    if (mode === "os-keyring" || !isNoKeyring(e)) throw e;
-    return { seal: hostKeySeal({ key: await hostMasterKey(home), service: SEAL_SERVICE }), via: "host-key" };
-  }
+  const seal = osKeyringSeal({
+    service,
+    ...(o.keyring ? { keyring: o.keyring } : {}),
+    ...(stateDir ? { stateDir } : {}),
+    ...(mode === "os-keyring" ? { fallback: false } : {}),
+  });
+  return { seal, via: seal.mode };
 }
 
 function encodeEnvelope(seal, key) {
@@ -105,7 +82,7 @@ export async function readHostKey(o = {}) {
     const { seal } = await loadSeal({
       ...o,
       home,
-      mode: raw.via === "host-key" || raw.via === "os-keyring" ? raw.via : undefined,
+      mode: raw.via === "host-key-file" ? "host-key" : raw.via === "keyring" ? "os-keyring" : undefined,
     });
     return decodeEnvelope(seal, raw.sealed);
   }

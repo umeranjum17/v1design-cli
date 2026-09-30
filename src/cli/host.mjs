@@ -96,7 +96,7 @@ export function buildKitOptions(o) {
   return {
     stateDir: o.stateDir,
     engineDir: o.engineDir,
-    // BYOKit bug (@byokit/openclaw 0.3.0): the kit writes openclaw.json
+    // BYOKit bug (@byokit/openclaw 0.3.2; fixed in 0.3.3): the kit writes openclaw.json
     // plugins.allow = ["byokit"], which blocks OpenClaw's "openai" provider
     // plugin, so ChatGPT device pairing fails "blocked by allowlist". The kit
     // deep-merges KitOptions.config, so this merges to ["openai", "byokit"].
