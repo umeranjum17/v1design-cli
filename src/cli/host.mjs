@@ -96,12 +96,6 @@ export function buildKitOptions(o) {
   return {
     stateDir: o.stateDir,
     engineDir: o.engineDir,
-    // BYOKit bug (@byokit/openclaw 0.3.2; fixed in 0.3.3): the kit writes openclaw.json
-    // plugins.allow = ["byokit"], which blocks OpenClaw's "openai" provider
-    // plugin, so ChatGPT device pairing fails "blocked by allowlist". The kit
-    // deep-merges KitOptions.config, so this merges to ["openai", "byokit"].
-    // Handle only through the kit's own options — never patch kit code.
-    config: { plugins: { allow: ["openai"] } },
     tools: [],
     // Deny-all gate: the host runs no tools and no engine builtins.
     host: {
@@ -115,9 +109,11 @@ export function buildKitOptions(o) {
 
 export function signinFailureMessage(view) {
   if (view.why === "expired") {
-    // BYOKit bug (@byokit/openclaw 0.3.0): sign-in fails if the member takes
-    // longer than 120 s to approve the device code (hardcoded wizard pull
-    // timeout). Surface it as expirable and let the member retry.
+    // BYOKit limitation (still present in @byokit/openclaw 0.3.3; the
+    // wait-until-expiry fix lands in the next openclaw release): sign-in
+    // fails if the member takes longer than 120 s to approve the device
+    // code (hardcoded wizard pull timeout). Surface it as expirable and
+    // let the member retry.
     return "Code expired — approval took too long. Run `v1design host` again for a fresh code.";
   }
   if (view.why === "declined") return "Sign-in cancelled.";
