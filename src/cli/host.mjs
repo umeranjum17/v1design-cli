@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { OpenClawKit } from "@byokit/openclaw";
 import { createRelayClient } from "./host-relay.ts";
+import { readHostKey } from "./host-secrets.mjs";
 
 export const HOST_MEMBER = "me";
 export const HOST_AUTH_CHOICE = "openai-device-code";
@@ -27,7 +28,6 @@ export const hostRoot = (home = homedir()) => join(home, ".v1design", "host");
 export const hostStateDir = (home = homedir()) =>
   process.env.V1DESIGN_STATE_DIR || join(home, ".v1design", "h");
 export const hostIdPath = (home = homedir()) => join(home, ".v1design", "host-id");
-export const hostKeyPath = (home = homedir()) => join(home, ".v1design", "host-key.json");
 
 /** Unix-domain socket ceiling is 108 chars; refuse well before it (BYOKit A21). */
 export const MAX_SOCK_PATH = 100;
@@ -196,8 +196,7 @@ export async function hostRun(relay = createRelayClient()) {
   guardSocketPath(stateDir);
   await ensureSecureDir(join(homedir(), ".v1design"));
   const id = await hostId();
-  const keyFile = await readSecureJson(hostKeyPath());
-  const hostKey = keyFile?.key ?? "";
+  const hostKey = await readHostKey(); // sealed via BYOKit; "" until S2 provisions one
   const kit = new OpenClawKit(buildKitOptions({ stateDir, engineDir: hostRoot() }));
   let draining = false;
   const onSigint = () => {
