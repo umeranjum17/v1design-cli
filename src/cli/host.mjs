@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { OpenClawKit } from "@byokit/openclaw";
-import { createRelayClient } from "./host-relay.ts";
+import { createHostClient } from "./host-relay.ts";
 import { readHostKey } from "./host-secrets.mjs";
 
 export const HOST_MEMBER = "me";
@@ -156,6 +156,156 @@ async function showView(view) {
   if (view.url) console.error(`  Approve at:   ${view.url}\n`);
 }
 
+/**
+ * Map a kit SignInView to the engine heartbeat post. The engine keeps only
+ * three states: "code" (code viewable by the owning uid, expiring),
+ * "signed-in", and anything else as signed-out.
+ */
+export function mapKitViewToPost(view) {
+  if (!view || typeof view !== "object") return { state: "signed-out" };
+  if (view.state === "done") return { state: "signed-in", ...(view.via ? { via: view.via } : {}) };
+  if (view.state === "waiting" && typeof view.code === "string" && view.code.trim()) {
+    return {
+      state: "code",
+      ...(view.via ? { via: view.via } : {}),
+      ...(view.url ? { url: view.url } : {}),
+      code: view.code,
+    };
+  }
+  return { state: "signed-out" };
+}
+
+/**
+ * Build the kit RunSpec for a host job (member "me", the job's model).
+ * Returns null when the job carries no message. When the job carries a
+ * schema, the model is instructed to answer in JSON and the text is parsed
+ * before submit (wantJson).
+ */
+export function buildRunSpec(job) {
+  const input = job?.input && typeof job.input === "object" ? job.input : null;
+  const message =
+    (typeof input?.message === "string" && input.message) ||
+    (typeof input?.prompt === "string" && input.prompt) ||
+    (typeof input?.text === "string" && input.text) ||
+    "";
+  if (!message.trim()) return null;
+  // The kit refuses any sessionKey outside agent:<member>:* and any model
+  // outside provider/model. This host is the ChatGPT-plan lane, so a bare
+  // model name means the member's own openai provider.
+  const spec = { sessionKey: `agent:${HOST_MEMBER}:host-${job.id}`, member: HOST_MEMBER, message };
+  if (typeof input.model === "string" && input.model) {
+    spec.model = input.model.includes("/") ? input.model : `openai/${input.model}`;
+  }
+  const parts = [];
+  if (typeof input.system === "string" && input.system) parts.push(input.system);
+  const wantJson = input.schema !== undefined;
+  if (wantJson) parts.push(`Respond with JSON only, matching this schema: ${JSON.stringify(input.schema)}`);
+  if (parts.length) spec.system = parts.join("\n\n");
+  return { spec, wantJson };
+}
+
+/**
+ * Typed failure for a kit RunEnd. Resting / plan-exhausted runs become a
+ * "resting until" failure with a backoff timestamp — never a retry storm.
+ */
+export function describeRunEnd(end) {
+  if (!end || typeof end !== "object") return { error: "failed: empty run end" };
+  if (end.ok) return { error: "" };
+  if (end.aborted) return { error: "aborted: host stopped" };
+  const kind = end.kind ?? "other";
+  const message = end.message || kind;
+  if ((kind === "resting" || kind === "plan") && typeof end.until === "number") {
+    return { error: `resting until ${new Date(end.until).toISOString()}: ${message}`, restUntil: end.until };
+  }
+  if (kind === "resting" || kind === "plan") return { error: `resting: ${message}` };
+  return { error: `${kind}: ${message}` };
+}
+
+/** Claim one job, run it through the kit, submit the result or a typed failure. */
+export async function runJobAndSubmit({ kit, client, job }) {
+  const built = buildRunSpec(job);
+  if (!built) {
+    const error = "invalid-input: job carries no message";
+    await client.submit(job.id, { error });
+    return { error };
+  }
+  let end;
+  try {
+    end = await kit.run(built.spec);
+  } catch (e) {
+    const error = `failed: ${e?.message || String(e)}`;
+    await client.submit(job.id, { error });
+    return { error };
+  }
+  if (end.ok) {
+    if (built.wantJson) {
+      try {
+        const result = JSON.parse(end.text);
+        await client.submit(job.id, { result });
+        return { result };
+      } catch {
+        const error = "invalid-result: model did not return JSON";
+        await client.submit(job.id, { error });
+        return { error };
+      }
+    }
+    await client.submit(job.id, { result: end.text });
+    return { result: end.text };
+  }
+  const { error, restUntil } = describeRunEnd(end);
+  await client.submit(job.id, { error });
+  return { error, restUntil };
+}
+
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export const createLoopControl = () => ({ draining: false, restUntil: 0 });
+
+/**
+ * The job loop: heartbeat presence + the current SignInView, poll, claim one
+ * job, run it, submit. While backing off (restUntil) the host still
+ * heartbeats but claims nothing. SIGINT drains: the loop stops polling and
+ * returns only after the in-flight job is submitted.
+ */
+export async function serveJobs({
+  kit,
+  client,
+  pollMs = 5000,
+  heartbeatMs = 30000,
+  ctl = createLoopControl(),
+  onEvent = () => {},
+}) {
+  let lastBeat = 0;
+  while (!ctl.draining) {
+    const now = Date.now();
+    if (now - lastBeat >= heartbeatMs) {
+      lastBeat = now;
+      // Signed in here by construction; the start-request flag is honoured
+      // only while signed out, so the loop ignores it.
+      await client.heartbeat({ state: "signed-in", via: "code" });
+    }
+    if (Date.now() < ctl.restUntil) {
+      await sleep(pollMs);
+      continue;
+    }
+    const polled = await client.poll();
+    if (!polled || ctl.draining) {
+      if (!ctl.draining) await sleep(pollMs);
+      continue;
+    }
+    const job = polled.jobs[0];
+    if (!job) {
+      await sleep(pollMs);
+      continue;
+    }
+    const claimed = await client.claim(job.id);
+    if (!claimed) continue; // lost the race; poll again immediately
+    onEvent({ type: "claimed", job: claimed });
+    const outcome = await runJobAndSubmit({ kit, client, job: claimed });
+    if (outcome.restUntil) ctl.restUntil = outcome.restUntil;
+    onEvent({ type: "settled", job: claimed, ...outcome });
+  }
+}
+
 async function withKit(fn) {
   checkNodeVersion();
   const kit = new OpenClawKit(
@@ -190,67 +340,77 @@ export async function hostSignout() {
   });
 }
 
-export async function hostRun(relay = createRelayClient()) {
+/**
+ * Sign in when needed. Returns "already" (signed in, start flag ignored),
+ * "signed-in", or "declined". A web start-request is honoured only while
+ * signed out and implies the owner consented on the web (TTY ask skipped).
+ */
+export async function signInIfNeeded({ kit, client, ask = askYesNo }) {
+  if (await kit.signedIn(HOST_MEMBER, HOST_PROVIDER)) {
+    await client.heartbeat({ state: "signed-in", via: "code" });
+    return "already";
+  }
+  const polled = await client.poll();
+  const webStart = polled?.startRequested === true;
+  if (!webStart && !(await ask(CONSENT_WORDS))) return "declined";
+  if (webStart) console.error("Web sign-in requested — continuing.");
+  const signin = kit.signIn(
+    HOST_MEMBER,
+    { authChoice: HOST_AUTH_CHOICE },
+    (view) => {
+      void showView(view);
+      void client.heartbeat(mapKitViewToPost(view));
+    },
+  );
+  const done = await signin.done;
+  if (done.state !== "done") throw new Error(signinFailureMessage(done));
+  await client.heartbeat(mapKitViewToPost(done));
+  return "signed-in";
+}
+
+export async function hostRun(client = null) {
   checkNodeVersion();
   const stateDir = hostStateDir();
   guardSocketPath(stateDir);
   await ensureSecureDir(join(homedir(), ".v1design"));
   const id = await hostId();
   const hostKey = await readHostKey(); // sealed via BYOKit; "" until S2 provisions one
+  client ??= createHostClient({ hostKey, hostId: id });
+  client.setHostKey(hostKey);
+  client.setHostId(id);
   const kit = new OpenClawKit(buildKitOptions({ stateDir, engineDir: hostRoot() }));
-  let draining = false;
+  const ctl = createLoopControl();
   const onSigint = () => {
-    if (draining) return;
-    draining = true;
-    console.error("\nShutting down the host…");
-    void kit.stop().finally(() => process.exit(0));
+    if (ctl.draining) {
+      console.error("\nForcing shutdown…");
+      process.exit(130);
+      return;
+    }
+    // Drain: stop polling; the in-flight job is submitted before exit.
+    ctl.draining = true;
+    console.error("\nShutting down the host… (in-flight job drains first)");
   };
   process.once("SIGINT", onSigint);
   await kit.prepare();
   await kit.start();
   try {
     await kit.ensureMember(HOST_MEMBER);
-    if (!(await kit.signedIn(HOST_MEMBER, HOST_PROVIDER))) {
-      // A web-initiated start is honoured only while signed out; switching
-      // accounts needs a TTY confirm (S2 relay contract).
-      const snap = await relay.snapshot(id);
-      if (snap?.consent) {
-        console.error("Consent already recorded on the web — continuing.");
-      } else if (!(await askYesNo(CONSENT_WORDS))) {
-        console.error("Consent declined. Run `v1design host` again to continue.");
-        return;
-      }
-      const ctl = kit.signIn(
-        HOST_MEMBER,
-        { authChoice: HOST_AUTH_CHOICE },
-        (view) => {
-          void showView(view);
-          void relay.postView(id, hostKey, view);
-        },
-      );
-      // A web cancel ends the pending sign-in.
-      const watchCancel = setInterval(async () => {
-        const s = await relay.snapshot(id).catch(() => null);
-        if (s?.intent === "cancel") ctl.cancel();
-      }, 2000);
-      if (watchCancel.unref) watchCancel.unref();
-      let done;
-      try {
-        done = await ctl.done;
-      } finally {
-        clearInterval(watchCancel);
-      }
-      if (done.state !== "done") throw new Error(signinFailureMessage(done));
+    const signinState = await signInIfNeeded({ kit, client });
+    if (signinState === "declined") {
+      console.error("Consent declined. Run `v1design host` again to continue.");
+      return;
+    }
+    if (signinState === "signed-in") {
       const providers = await kit.providers(HOST_MEMBER);
       console.error(`Signed in (ChatGPT plan): ${providers.join(", ") || HOST_PROVIDER}.`);
     } else {
       console.error("Already signed in (ChatGPT plan).");
     }
     console.error("Host online. Press Ctrl-C to stop.");
-    await new Promise(() => {}); // SIGINT drains above
+    await serveJobs({ kit, client, ctl });
   } finally {
     process.removeListener("SIGINT", onSigint);
-    if (!draining) await kit.stop();
+    await kit.stop();
   }
 }
 
