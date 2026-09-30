@@ -39,6 +39,7 @@ Usage:
   v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills] [--allow-project-write]
   v1design status
   v1design logout
+  v1design host [status|signout]   # member-computer carrier for the ChatGPT-plan lane (Studio, additive)
 Explore designs for an idea — BOTH lanes (adapt from library + fresh from recipe), then a browser gallery to pick from:
   v1design explore "an idea" [--surface web|mobile] [--adapt N] [--fresh N] [--recipe <dir>] [--json]
   v1design gallery [folder] [--no-open]           # assemble + open a browser gallery of the rendered concepts
@@ -689,6 +690,10 @@ async function main() {
   if (cmd === "connect" || cmd === "setup") { await connect(flags); return; }
   if (cmd === "status" || cmd === "auth:status") { await status(); return; }
   if (cmd === "logout" || cmd === "auth:logout") { await logout(); return; }
+  if (cmd === "host") {
+    const { hostCommand } = await import("./host.mjs");
+    await hostCommand(sub, flags); return;
+  }
   if (cmd === "studio" || cmd === "create") {
     // "studio" = the ENGINE forge (generates a NEW design, spends credits). `create` is a
     // deprecated alias kept so 0.3.x callers don't break — it warns then runs studio.

@@ -1,6 +1,6 @@
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -21,7 +21,8 @@ export async function readCredentials(): Promise<Credentials | null> {
 }
 
 async function saveCredentials(credentials: Credentials) {
-  await mkdir(dirname(CONFIG_PATH), { recursive: true });
+  await mkdir(dirname(CONFIG_PATH), { recursive: true, mode: 0o700 });
+  await chmod(dirname(CONFIG_PATH), 0o700); // pre-existing dirs keep old modes without this
   await writeFile(CONFIG_PATH, JSON.stringify(credentials, null, 2) + "\n", { mode: 0o600 });
 }
 
