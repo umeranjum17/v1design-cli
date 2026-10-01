@@ -1,0 +1,23 @@
+page:
+  title: Authorize agent · v-1.design
+  refs: 14
+snapshot:
+uid=g8:3_0 RootWebArea "Authorize agent · v-1.design" url="http://127.0.0.1:18918/authorize?<session-and-PKCE-redacted>
+  uid=g8:3_1 main
+    uid=g8:3_2 link "v-1.design home" url="http://127.0.0.1:18918/"
+      uid=g8:3_3 StaticText "v-1.design"
+    uid=g8:3_4 StaticText "V1DESIGN"
+    uid=g8:3_5 heading "Connect this agent to v-1.design" level="1"
+    uid=g8:3_6 StaticText "Authorize once. Your CLI saves the connection locally, then Claude Code, Codex, Cursor, and terminal commands can pull designs without moving secrets between tools."
+    uid=g8:3_7 StaticText "ACCESS REQUESTED"
+    uid=g8:3_8 StaticText "Read the v-1 library and your saved designs, and fetch design tokens, screen code, and rendered references."
+    uid=g8:8_0 StaticText "CONNECTED"
+    uid=g8:8_1 StaticText "This agent is authorized. Return to your terminal — it will continue automatically. You can close this tab."
+    uid=g8:3_17 StaticText "NO TOKEN TO COPY. NO CONFIG SECRET TO PASTE."
+  uid=g8:3_18 button "Open Next.js Dev Tools" expandable haspopup="menu"
+  uid=g8:3_19 alert atomic live="assertive" relevant="additions text"
+help[4]:
+  Run `chrome-devtools-axi click @g8:3_18` to click the "Open Next.js Dev Tools" button
+  Run `chrome-devtools-axi click @g8:3_2` to click the "v-1.design home" link
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`

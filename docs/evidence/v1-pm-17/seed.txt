@@ -1,0 +1,9 @@
+
+seed-library [SEED] — 1 design(s)
+
+  inventory: 4 molecules, 5 organisms (local — no gateway)
+slug                     screens  status     warnings/errors
+------------------------------------------------------------------------
+pulse                    6        ✓ seeded inventory:✓     WARN: 01-Overview.web.tsx: contains raw hex colors or bg-(white|black|gray) utilities — use var(--token) instead; WARN: 02-Analytics.web.tsx: contains raw hex colors or bg-(white|black|gray) utilities — use var(--token) instead; WARN: 03-Customers.web.tsx: contains raw hex colors or bg-(white|black|gray) utilities — use var(--token) instead; WARN: 04-Settings.web.tsx: contains raw hex colors or bg-(white|black|gray) utilities — use var(--token) instead; WARN: 05-Revenue.web.tsx: contains raw hex colors or bg-(white|black|gray) utilities — use var(--token) instead
+
+Done.

@@ -1,0 +1,30 @@
+page:
+  title: Authorize agent · v-1.design
+  refs: 20
+snapshot:
+uid=g4:3_0 RootWebArea "Authorize agent · v-1.design" url="http://127.0.0.1:18918/authorize?<session-and-PKCE-redacted>
+  uid=g4:3_1 main
+    uid=g4:3_2 link "v-1.design home" url="http://127.0.0.1:18918/"
+      uid=g4:3_3 StaticText "v-1.design"
+    uid=g4:3_4 StaticText "V1DESIGN"
+    uid=g4:3_5 heading "Connect this agent to v-1.design" level="1"
+    uid=g4:3_6 StaticText "Authorize once. Your CLI saves the connection locally, then Claude Code, Codex, Cursor, and terminal commands can pull designs without moving secrets between tools."
+    uid=g4:3_7 StaticText "ACCESS REQUESTED"
+    uid=g4:3_8 StaticText "Read the v-1 library and your saved designs, and fetch design tokens, screen code, and rendered references."
+    uid=g4:3_9 StaticText "ENTER THE CODE FROM YOUR TERMINAL"
+    uid=g4:3_10 StaticText "v1design connect"
+    uid=g4:3_11 StaticText " printed an 8-character code. Type it here to prove this request came from "
+    uid=g4:3_12 StaticText "your"
+    uid=g4:3_13 StaticText "terminal. If you didn't just run it, close this tab — approving would give whoever started it access to your v-1.design account."
+    uid=g4:3_14 form
+      uid=g4:3_15 textbox "ENTER THE CODE FROM YOUR TERMINAL" description="v1design connect printed an 8-character code. Type it here to prove this request came from yourterminal. If you didn't just run it, close this tab — approving would give whoever started it access to your v-1.design account." focusable focused
+    uid=g4:3_16 button "AUTHORIZE AGENT" disableable disabled
+    uid=g4:3_17 StaticText "NO TOKEN TO COPY. NO CONFIG SECRET TO PASTE."
+  uid=g4:3_18 button "Open Next.js Dev Tools" expandable haspopup="menu"
+  uid=g4:3_19 alert atomic live="assertive" relevant="additions text"
+help[5]:
+  Run `chrome-devtools-axi fill @g4:3_15 "text"` to fill the "ENTER THE CODE FROM YOUR TERMINAL" field
+  Run `chrome-devtools-axi click @g4:3_16` to click the "AUTHORIZE AGENT" button
+  Run `chrome-devtools-axi click @g4:3_2` to click the "v-1.design home" link
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
