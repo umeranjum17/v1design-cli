@@ -35,6 +35,14 @@ export type HostSignInPost = {
 export type HostPoll = { jobs: HostJob[]; startRequested: boolean };
 export type HostHeartbeat = { startRequested: boolean };
 
+/** Engine lane names on the wire (X3): the host only runs its own lane. */
+export type HostLaneName = "chatgpt" | "claude-plan";
+
+export type HostHeartbeatPresence = {
+  lane?: HostLaneName;
+  signedIn?: boolean;
+};
+
 export type HostClientOptions = {
   baseUrl?: string;
   hostKey?: string;
@@ -123,8 +131,14 @@ export function createHostClient(o: HostClientOptions = {}) {
     /**
      * Heartbeat: presence + the current SignInView. Returns the web
      * start-request flag (a web start is honoured only while signed out).
+     * `presence` carries the engine lane and the sign-in flag (X3).
      */
-    async heartbeat(signIn?: HostSignInPost, meta?: Record<string, unknown>, hostId = state.id): Promise<HostHeartbeat | null> {
+    async heartbeat(
+      signIn?: HostSignInPost,
+      meta?: Record<string, unknown>,
+      presence?: HostHeartbeatPresence,
+      hostId = state.id,
+    ): Promise<HostHeartbeat | null> {
       try {
         const res = await req(state, await url("/host/heartbeat"), {
           method: "POST",
@@ -133,6 +147,8 @@ export function createHostClient(o: HostClientOptions = {}) {
             hostId,
             ...(meta ? { meta } : {}),
             ...(signIn ? { signIn } : {}),
+            ...(presence?.lane ? { lane: presence.lane } : {}),
+            ...(presence?.signedIn !== undefined ? { signedIn: presence.signedIn } : {}),
           }),
         });
         if (!res.ok) return null;
@@ -143,6 +159,32 @@ export function createHostClient(o: HostClientOptions = {}) {
       }
     },
   };
+}
+
+/**
+ * Mint a host-scoped key for one hostId (X3; raw shown once). Auth is the
+ * owner's full-scope user key, never the host key. Null when the engine is
+ * unreachable or refuses: the host keeps working TTY-only.
+ */
+export async function mintHostKey(
+  hostId: string,
+  userKey: string,
+  o: { baseUrl?: string; timeoutMs?: number } = {},
+): Promise<string | null> {
+  try {
+    const base = (o.baseUrl ?? (await defaultBaseUrl())).replace(/\/$/, "");
+    const res = await fetch(`${base}/host/keys`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${userKey}` },
+      body: JSON.stringify({ hostId }),
+      signal: AbortSignal.timeout(o.timeoutMs ?? 8000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { key?: unknown };
+    return typeof data.key === "string" && data.key ? data.key : null;
+  } catch {
+    return null;
+  }
 }
 
 export type HostClient = ReturnType<typeof createHostClient>;

@@ -39,7 +39,7 @@ Usage:
   v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills] [--allow-project-write]
   v1design status
   v1design logout
-  v1design host [--lane claude] [status|signout]   # member-computer carrier for a plan lane (Studio, additive)
+  v1design host [--lane claude] [--fake] [status|signout]   # member-computer carrier for a plan lane (Studio, additive)
 Explore designs for an idea — BOTH lanes (adapt from library + fresh from recipe), then a browser gallery to pick from:
   v1design explore "an idea" [--surface web|mobile] [--adapt N] [--fresh N] [--recipe <dir>] [--json]
   v1design gallery [folder] [--no-open]           # assemble + open a browser gallery of the rendered concepts
@@ -119,6 +119,7 @@ function parse(argv) {
     if ([
       "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "no-open", "loose-surface",
       "install", "run", "yes", "confirm", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css", "tells", "force",
+      "fake",
     ].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }

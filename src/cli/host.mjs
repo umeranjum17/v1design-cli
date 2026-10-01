@@ -17,8 +17,9 @@ import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { OpenClawKit, words } from "@byokit/openclaw";
-import { createHostClient } from "./host-relay.ts";
-import { readHostKey } from "./host-secrets.mjs";
+import { createHostClient, mintHostKey } from "./host-relay.ts";
+import { readHostKey, writeHostKey } from "./host-secrets.mjs";
+import { readCredentials } from "./auth.ts";
 
 export const HOST_MEMBER = "me";
 export const HOST_AUTH_CHOICE = "openai-device-code";
@@ -48,6 +49,18 @@ export const HOST_LANES = {
 
 export const laneConfig = (lane) => HOST_LANES[lane] ?? HOST_LANES.chatgpt;
 export const laneOf = (flags = {}) => (flags.lane === "claude" ? "claude" : "chatgpt");
+
+/** Engine lane names on the wire: the CLI flag says `claude`, the wire says `claude-plan` (X3). */
+export const engineLaneOf = (lane) => (lane === "claude" ? "claude-plan" : "chatgpt");
+
+/** Wire marker for "my plan is resting": mirrors the engine's host-job-contract (X1). */
+export const HOST_RESTING_PREFIX = "resting_until:";
+export const restingError = (untilMs) => `${HOST_RESTING_PREFIX}${untilMs}`;
+export function parseRestingUntil(error) {
+  if (typeof error !== "string" || !error.startsWith(HOST_RESTING_PREFIX)) return null;
+  const until = Number(error.slice(HOST_RESTING_PREFIX.length));
+  return Number.isFinite(until) ? until : null;
+}
 
 /** Kit engine requirement (pinned OpenClaw engine): keep in sync with the kit. */
 export const HOST_NODE_REQUIREMENT = ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0";
@@ -118,6 +131,30 @@ export async function hostId(home = homedir()) {
   const id = randomBytes(16).toString("hex");
   await writeSecureJson(path, { id });
   return id;
+}
+
+/**
+ * The host key for this hostId, sealed via BYOKit (X3). Returns the stored
+ * key when present; otherwise mints one from the engine's POST /host/keys
+ * with the owner's user credential and seals it. Returns "" when there is
+ * no credential or the engine refuses — the host keeps working TTY-only.
+ * The key is never logged.
+ */
+export async function ensureHostKey({ id = null } = {}) {
+  const hostIdValue = id ?? (await hostId());
+  const existing = await readHostKey();
+  if (existing) return existing;
+  let userKey = "";
+  try {
+    userKey = (await readCredentials())?.key ?? "";
+  } catch {
+    userKey = "";
+  }
+  if (!userKey) return "";
+  const raw = await mintHostKey(hostIdValue, userKey);
+  if (!raw) return "";
+  await writeHostKey(raw);
+  return raw;
 }
 
 export function buildKitOptions(o) {
@@ -197,30 +234,58 @@ export function mapKitViewToPost(view) {
 
 /**
  * Build the kit RunSpec for a host job (member "me", the job's model).
- * Returns null when the job carries no message. When the job carries a
- * schema, the model is instructed to answer in JSON and the text is parsed
- * before submit (wantJson).
+ * Reads the X1 contract fields: model, role, system, messages (text and
+ * image parts), the json flag and schema, plus lane. Text parts join in
+ * order; image parts ride the kit's RunSpec.images. Legacy single-message
+ * jobs ({message|prompt|text}) keep working. Returns null when the job
+ * carries no message. When the job wants JSON, the model is instructed to
+ * answer in JSON and the text is validated before submit (wantJson).
  */
 export function buildRunSpec(job, lane = "chatgpt") {
   const cfg = laneConfig(lane);
   const input = job?.input && typeof job.input === "object" ? job.input : null;
-  const message =
-    (typeof input?.message === "string" && input.message) ||
-    (typeof input?.prompt === "string" && input.prompt) ||
-    (typeof input?.text === "string" && input.text) ||
-    "";
+  let message = "";
+  let images = [];
+  if (input && Array.isArray(input.messages)) {
+    const texts = [];
+    for (const m of input.messages) {
+      if (!m || typeof m !== "object" || !Array.isArray(m.content)) continue;
+      for (const p of m.content) {
+        if (!p || typeof p !== "object") continue;
+        if (p.type === "text" && typeof p.text === "string" && p.text) texts.push(p.text);
+        else if (p.type === "image" && typeof p.data === "string" && p.data) {
+          images.push({
+            data: p.data,
+            mimeType: typeof p.mediaType === "string" && p.mediaType ? p.mediaType : "image/png",
+          });
+        }
+      }
+    }
+    message = texts.join("\n\n");
+  } else {
+    message =
+      (typeof input?.message === "string" && input.message) ||
+      (typeof input?.prompt === "string" && input.prompt) ||
+      (typeof input?.text === "string" && input.text) ||
+      "";
+  }
   if (!message.trim()) return null;
-  // The kit refuses any sessionKey outside agent:<member>:* and any model
-  // outside provider/model. This host is a plan lane, so a bare model name
-  // means the member's own lane provider (openai/ or claude-cli/).
   const spec = { sessionKey: `agent:${HOST_MEMBER}:host-${job.id}`, member: HOST_MEMBER, message };
+  if (images.length) spec.images = images;
   if (typeof input.model === "string" && input.model) {
     spec.model = input.model.includes("/") ? input.model : `${cfg.modelPrefix}${input.model}`;
   }
+  if (typeof input.role === "string" && input.role) spec.meta = { role: input.role };
   const parts = [];
   if (typeof input.system === "string" && input.system) parts.push(input.system);
-  const wantJson = input.schema !== undefined;
-  if (wantJson) parts.push(`Respond with JSON only, matching this schema: ${JSON.stringify(input.schema)}`);
+  const wantJson = input.json === true || input.schema !== undefined;
+  if (wantJson) {
+    parts.push(
+      input.schema !== undefined
+        ? `Respond with JSON only, matching this schema: ${JSON.stringify(input.schema)}`
+        : "Respond with JSON only.",
+    );
+  }
   if (parts.length) spec.system = parts.join("\n\n");
   return { spec, wantJson };
 }
@@ -236,13 +301,16 @@ export function describeRunEnd(end) {
   const kind = end.kind ?? "other";
   const message = end.message || kind;
   if ((kind === "resting" || kind === "plan") && typeof end.until === "number") {
-    return { error: `resting until ${new Date(end.until).toISOString()}: ${message}`, restUntil: end.until };
+    // The engine maps `resting_until:<ms>` to a typed 429 (X1): never prose here.
+    return { error: restingError(end.until), restUntil: end.until };
   }
   if (kind === "resting" || kind === "plan") return { error: `resting: ${message}` };
   return { error: `${kind}: ${message}` };
 }
 
-/** Claim one job, run it through the kit, submit the result or a typed failure. */
+/** Claim one job, run it through the kit, submit the result or a typed failure.
+ * Submits the X1 result shape {text, usage}; resting failures carry the
+ * `resting_until:<ms>` marker. */
 export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
   const built = buildRunSpec(job, lane);
   if (!built) {
@@ -259,19 +327,18 @@ export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
     return { error };
   }
   if (end.ok) {
+    const result = { text: end.text, ...(end.usage === undefined ? {} : { usage: end.usage }) };
     if (built.wantJson) {
       try {
-        const result = JSON.parse(end.text);
-        await client.submit(job.id, { result });
-        return { result };
+        JSON.parse(result.text);
       } catch {
         const error = "invalid-result: model did not return JSON";
         await client.submit(job.id, { error });
         return { error };
       }
     }
-    await client.submit(job.id, { result: end.text });
-    return { result: end.text };
+    await client.submit(job.id, { result });
+    return { result };
   }
   const { error, restUntil } = describeRunEnd(end);
   await client.submit(job.id, { error });
@@ -297,14 +364,16 @@ export async function serveJobs({
   lane = "chatgpt",
 }) {
   const via = laneConfig(lane).heartbeatVia;
+  const engineLane = engineLaneOf(lane);
   let lastBeat = 0;
   while (!ctl.draining) {
     const now = Date.now();
     if (now - lastBeat >= heartbeatMs) {
       lastBeat = now;
       // Signed in here by construction; the start-request flag is honoured
-      // only while signed out, so the loop ignores it.
-      await client.heartbeat({ state: "signed-in", via });
+      // only while signed out, so the loop ignores it. The heartbeat carries
+      // the engine lane and the sign-in flag (X3).
+      await client.heartbeat({ state: "signed-in", via }, undefined, { lane: engineLane, signedIn: true });
     }
     if (Date.now() < ctl.restUntil) {
       await sleep(pollMs);
@@ -406,8 +475,9 @@ export function claudeLoginInstructions(stateDir, route) {
  */
 export async function signInIfNeeded({ kit, client, ask = askYesNo, lane = "chatgpt" }) {
   const cfg = laneConfig(lane);
+  const engineLane = engineLaneOf(lane);
   if (await kit.signedIn(HOST_MEMBER, cfg.provider)) {
-    await client.heartbeat({ state: "signed-in", via: cfg.heartbeatVia });
+    await client.heartbeat({ state: "signed-in", via: cfg.heartbeatVia }, undefined, { lane: engineLane, signedIn: true });
     return "already";
   }
   const polled = await client.poll();
@@ -431,12 +501,15 @@ export async function signInIfNeeded({ kit, client, ask = askYesNo, lane = "chat
     { authChoice: cfg.authChoice },
     (view) => {
       void showView(view);
-      void client.heartbeat(mapKitViewToPost(view));
+      void client.heartbeat(mapKitViewToPost(view), undefined, {
+        lane: engineLane,
+        signedIn: view.state === "done",
+      });
     },
   );
   const done = await signin.done;
   if (done.state !== "done") throw new Error(signinFailureMessage(done));
-  await client.heartbeat(mapKitViewToPost(done));
+  await client.heartbeat(mapKitViewToPost(done), undefined, { lane: engineLane, signedIn: true });
   return "signed-in";
 }
 
@@ -447,7 +520,7 @@ export async function hostRun(client = null, lane = "chatgpt") {
   guardSocketPath(stateDir);
   await ensureSecureDir(join(homedir(), ".v1design"));
   const id = await hostId();
-  const hostKey = await readHostKey(); // sealed via BYOKit; "" until S2 provisions one
+  const hostKey = await ensureHostKey({ id }); // sealed via BYOKit; "" until the engine provisions one
   client ??= createHostClient({ hostKey, hostId: id });
   client.setHostKey(hostKey);
   client.setHostId(id);
@@ -487,8 +560,60 @@ export async function hostRun(client = null, lane = "chatgpt") {
   }
 }
 
+/**
+ * --fake: run the X1 contract fixture through the real runJobAndSubmit with
+ * a stub kit and a capturing client (no sign-in, no engine, no network).
+ * Any wire drift fails loudly here and in test/host-job-contract.test.mjs.
+ */
+export async function hostFakeCheck(lane = "chatgpt") {
+  const fixture = JSON.parse(
+    await readFile(new URL("./host-job-contract.fixture.json", import.meta.url), "utf8"),
+  );
+  const fail = (msg) => {
+    throw new Error(`host --fake contract mismatch: ${msg}`);
+  };
+  const seen = [];
+  const submitted = [];
+  const kit = {
+    async run(spec) {
+      seen.push(spec);
+      return { ok: true, text: fixture.result.text, usage: fixture.result.usage };
+    },
+  };
+  const client = { submit: async (id, body) => void submitted.push([id, body]) };
+  const job = { id: "fake-1", input: fixture.job };
+  await runJobAndSubmit({ kit, client, job, lane });
+  if (seen.length !== 1) fail("kit.run was not called exactly once");
+  const [spec] = seen;
+  if (spec.model !== fixture.job.model) fail(`model ${spec.model} !== ${fixture.job.model}`);
+  if (typeof spec.system !== "string" || !spec.system.includes(fixture.job.system)) {
+    fail("system prompt did not reach the kit");
+  }
+  if (!spec.system.includes(JSON.stringify(fixture.job.schema))) fail("schema did not reach the kit");
+  const wantImages = fixture.job.messages.flatMap((m) => m.content).filter((p) => p.type === "image");
+  const images = spec.images ?? [];
+  if (images.length !== wantImages.length) {
+    fail(`${images.length} images reached the kit, fixture has ${wantImages.length}`);
+  }
+  if (images.some((im, i) => im.data !== wantImages[i].data || im.mimeType !== wantImages[i].mediaType)) {
+    fail("image payload did not round-trip to the kit");
+  }
+  if (JSON.stringify(submitted) !== JSON.stringify([["fake-1", { result: fixture.result }]])) {
+    fail(`submitted ${JSON.stringify(submitted)} !== {text, usage}`);
+  }
+  // Resting reports as resting_until:<ms>.
+  const restingKit = {
+    run: async () => ({ ok: false, kind: "resting", until: 1788393600000, message: "plan resting" }),
+  };
+  const restingOut = await runJobAndSubmit({ kit: restingKit, client, job, lane });
+  if (restingOut.error !== fixture.resting.error) fail(`resting ${restingOut.error} !== ${fixture.resting.error}`);
+  if (parseRestingUntil(restingOut.error) !== 1788393600000) fail("resting marker does not parse");
+  console.log("host --fake: contract ok (messages, images, {text, usage}, resting_until).");
+}
+
 export async function hostCommand(sub, flags = {}) {
   const lane = laneOf(flags);
+  if (flags.fake) return hostFakeCheck(lane);
   if (sub === "status" || flags.status) return hostStatus(lane);
   if (sub === "signout" || sub === "logout" || flags.signout) return hostSignout(lane);
   if (sub === "help" || sub === "--help" || sub === "-h" || flags.help) {
@@ -498,6 +623,7 @@ Run the member-computer carrier for a plan lane (Studio, additive):
 
   v1design host                  Sign in with your ChatGPT plan and stay online
   v1design host --lane claude    Sign in with your Claude Pro/Max plan and stay online
+  v1design host --fake           Check the engine job contract offline (no sign-in, no engine)
   v1design host status           Show whether this computer is signed in
   v1design host signout          Sign out of the plan lane on this computer
 
