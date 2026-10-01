@@ -1,0 +1,31 @@
+{
+  "_comment": "Studio Phase 0 (X1) host job wire fixture. The CLI lane copies this file verbatim and runs the same contract test against its runJobAndSubmit. Fields: job payload carries messages/system/json flag/schema/images; result is {text, usage}; resting is reported as resting_until:<ms>.",
+  "job": {
+    "model": "openai/gpt-5.6-sol",
+    "role": "critic",
+    "system": "You are an Awwwards SOTD juror.",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Rate this hero: {\"overall\": 0}" },
+          { "type": "image", "mediaType": "image/png", "data": "iVBORw0KGgo=" }
+        ]
+      }
+    ],
+    "json": true,
+    "schema": {
+      "type": "object",
+      "properties": { "overall": { "type": "number" } },
+      "required": ["overall"]
+    },
+    "lane": "chatgpt"
+  },
+  "result": {
+    "text": "{\"overall\": 8.5}",
+    "usage": { "inputTokens": { "total": 120 }, "outputTokens": { "total": 25 } }
+  },
+  "resting": {
+    "error": "resting_until:1788393600000"
+  }
+}

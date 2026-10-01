@@ -1,0 +1,15 @@
+{
+  "kind": "Real MCP SDK transport probe driven by Codex; not a newly loaded native Codex tool",
+  "entry": "bin/agent.mjs",
+  "credentialSource": "isolated demo HOME; no API key supplied in env",
+  "toolsCount": 18,
+  "search": {
+    "content": [
+      {
+        "type": "text",
+        "text": "1 matches for \"analytics\" — top 1:\n- [design] Pulse\n    pull: pulse-5f8a2c10"
+      }
+    ]
+  },
+  "diagnostic": "[v1design] local connector ready (engine: http://localhost:18917)\n"
+}

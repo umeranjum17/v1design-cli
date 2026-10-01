@@ -1,0 +1,92 @@
+[
+  {
+    "path": ".cursor/rules/v1design.mdc",
+    "bytes": 952,
+    "sha256": "5b714fa7496267c6c444af285ebec1c1b46308d29ed5ee55bb69d3eba8b64109"
+  },
+  {
+    "path": ".v1design/pull.json",
+    "bytes": 207,
+    "sha256": "28ec076102decc74746925e79dffd29cdd250e77cbe31d7b1caa060d76649ac4"
+  },
+  {
+    "path": "AGENTS.md",
+    "bytes": 967,
+    "sha256": "7386fa34fd7cdeb1b1ec7526b3412896eb4800285badaf3fcfb31b342e69d48a"
+  },
+  {
+    "path": "CLAUDE.md",
+    "bytes": 971,
+    "sha256": "52117b588e5bfab5f157ab530ceff889145e045590dd1510f83158a2848efb2c"
+  },
+  {
+    "path": "DESIGN.md",
+    "bytes": 3548,
+    "sha256": "60264f0e6f10c2f3f40d956cb8cf43157af1b90555f98a0aa524e271a636a833"
+  },
+  {
+    "path": "PROMPT.md",
+    "bytes": 21512,
+    "sha256": "17345aefbf5b2aa12c8d133e24cc3837179caa56eb515cb77ee451ebb0565853"
+  },
+  {
+    "path": "WORK-ORDER.md",
+    "bytes": 1710,
+    "sha256": "ebaa3263f68161faf3b1c8009d71708b77bb39e0a2d9cab12e565084555d96e4"
+  },
+  {
+    "path": "design-tokens.json",
+    "bytes": 7544,
+    "sha256": "8304ce582b1f4e90710ba0a98a44d71e8def186e939b17ea46fd1a533f54b6e6"
+  },
+  {
+    "path": "prompts/Analytics.md",
+    "bytes": 2709,
+    "sha256": "6b5426d060be72bcbc4287c1e58451f75584db0344e8f0dfb9a921e4ac88cb1e"
+  },
+  {
+    "path": "prompts/Customers.md",
+    "bytes": 2765,
+    "sha256": "28b8b2af191f125c6daae088ea8f29ff40f1b05a0e3e92edbff6b243563191c6"
+  },
+  {
+    "path": "prompts/Overview.md",
+    "bytes": 4009,
+    "sha256": "a98340dfa69a7361d1884bab38a042530bcbd8f7d1c486cd899542e79f694626"
+  },
+  {
+    "path": "prompts/Settings.md",
+    "bytes": 2694,
+    "sha256": "ec82ebb8d7cf0363aad7dab0e40f45c6c2f074c38ec3409a5b24adfe184d34a5"
+  },
+  {
+    "path": "screens/Analytics.tsx",
+    "bytes": 19263,
+    "sha256": "91ab213b220e4eb4432a18ea64532691ac6790c2323647be6db25caf7adcb2d7"
+  },
+  {
+    "path": "screens/Customers.tsx",
+    "bytes": 19114,
+    "sha256": "d7d7e2a30d3031ec20f14fd97e15263c05387771d9ee7ee29b75d203edee4a6b"
+  },
+  {
+    "path": "screens/Overview.tsx",
+    "bytes": 23076,
+    "sha256": "61bb64c5246b1d4362f7dc0723f0ec81b78f9c6d0ef6e1cecdaeec16990b7585"
+  },
+  {
+    "path": "screens/Revenue.tsx",
+    "bytes": 20895,
+    "sha256": "785c210dc7154d0d3336b64c3d12d1f390c00949f47dd491f7e268f6add1216c"
+  },
+  {
+    "path": "screens/Settings.tsx",
+    "bytes": 21468,
+    "sha256": "b47bac1cfb74f3f235cd8cd8e2d7ea0d727cff1e226337c83bbbd9a86c0e3468"
+  },
+  {
+    "path": "work-order.json",
+    "bytes": 794,
+    "sha256": "3ebadae96a5441db95a2858c36e101e27bc082e131e7c84fe57f254abaebe3b4"
+  }
+]

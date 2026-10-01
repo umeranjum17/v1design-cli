@@ -32,54 +32,30 @@ const SEARCH_ALIASES = {
 };
 
 function usage() {
-  console.log(`v1design
-
-Usage:
-  v1design login
-  v1design connect [--client auto|codex|cursor|claude|all] [--target ~/.codex/skills] [--allow-project-write]
+  console.log(`v1design — find a design, pull it, build with your agent
+Connect
+  v1design connect [--client codex|cursor|claude|all]
   v1design status
-  v1design logout
-Explore designs for an idea — BOTH lanes (adapt from library + fresh from recipe), then a browser gallery to pick from:
-  v1design explore "an idea" [--surface web|mobile] [--adapt N] [--fresh N] [--recipe <dir>] [--json]
-  v1design gallery [folder] [--no-open]           # assemble + open a browser gallery of the rendered concepts
-  v1design recipe init [--out <dir>] [--force]   # scaffold a sample recipe to ./.v1design/recipe
-  v1design recipe path                            # show which recipe "explore" resolves
-
-Generate a brand-new design with the ENGINE forge (spends credits — only on an explicit ask):
-  v1design studio "brief" --yes [--target web|mobile|both] [--wait] [--json]
-      ("studio" GENERATES a new design via the engine + spends credits, so it needs --yes.
-       "v1design create" is a deprecated alias for "studio".)
-  v1design search "fintech dashboard" [--type design|screen|palette|font|component] [--surface web|mobile] [--limit 12]
-  v1design library search "book app" [--surface web|mobile] [--json] [--limit 8]
-  v1design library suggest "book app" [--surface web|mobile] [--limit 5] [--open] [--json]
-  v1design designs list [--json]
-  v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip] [--allow-project-write]
-  v1design pull <design-ref> [--out handoff.zip] [--allow-project-write]
-  v1design screens get <design-ref> <screen-name> [--out Screen.tsx] [--json] [--allow-project-write]
-  v1design tokens get <design-ref> [--out tokens.json]
-  v1design theme  get <design-ref> [--css] [--out theme.css|theme.json]
-  v1design colors get <design-ref> [--out colors.json]
-  v1design skill install [--target ~/.codex/skills] [--allow-project-write]
-
-Build a runnable, verified app (idea or a specific design → Next.js / Expo):
-  v1design new "idea" [--surface web|mobile] [--target ./dir] [--design <ref>] [--install] [--run]
-  v1design scaffold <design-ref> [--surface web|mobile] [--out ./dir] [--install] [--run] [--no-verify]
-  v1design remix <refA> <refB> [--system <ref>] [--surface web|mobile] [--out ./dir] [--install]
-  v1design verify [dir] [--heal] [--against <ref>] [--json]
-  v1design grade <dir> [--against <ref>] [--json]
-
-Find AI-slop tells in any UI (free, no account, no API key, runs locally):
-  v1design detect [dir] [--json] [--tells]
-  v1design vibe "darker|teal fintech|..." [--in ./dir]
-  v1design compose <design-ref> --add "Settings,Billing" [--wait]
-  v1design compare <refA> <refB> [--surface web|mobile] [--open]
-  v1design screenshots <design-ref> [--out ./shots] [--screens A,B]
-
-Design refs can be Studio links, share links, Library links, raw ids, or Library slugs.
-Run "v1design connect" once; no secret or config copying is needed after that.
-
-Safety: generated artifacts default to ~/.v1design/workspace/<design-ref>. The CLI refuses
-to write inside a Git worktree unless --allow-project-write is passed.`);
+Find
+  v1design search "idea" [--type design|screen|palette|font|component] [--surface web|mobile]
+  v1design library suggest "idea" [--surface web|mobile] [--limit 5] [--open]
+  v1design explore "idea" [--surface web|mobile] [--recipe <dir>]
+  v1design recipe init  (local recipe); v1design gallery <folder>  (review concepts)
+Pull
+  v1design pull <ref> [--into <dir>] [--dry-run] [--agents claude,codex,cursor]
+  v1design pull --project <project-id> [--into <dir>] [--dry-run]  (your Studio run)
+  In a project (package.json or .git), pull writes its root; --into chooses another dir.
+  --dry-run previews pack writes only. Omit it to write; no --allow-project-write needed.
+  Outside a project, pull downloads a ZIP; --zip or --out <file> also selects ZIP mode.
+  ZIP mode has no dry-run; Git writes need --allow-project-write. Default: ~/.v1design/workspace/<ref>.
+  After writing, ask your agent to follow WORK-ORDER.md.
+  v1design scaffold <ref> [--surface web|mobile] [--out <dir>] [--install] [--run]
+  Scaffold Git writes also need --allow-project-write; use only the intended app.
+Studio on your computer
+  v1design host                     Use your ChatGPT plan through BYOKit; keep running.
+  v1design host --lane claude       Use your Claude Pro/Max plan through BYOKit.
+  v1design host [--lane claude] status | signout
+  v1design host help               Setup, requirements and account details.`);
 }
 
 function libraryUsage() {
@@ -118,6 +94,7 @@ function parse(argv) {
     if ([
       "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "no-open", "loose-surface",
       "install", "run", "yes", "confirm", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css", "tells", "force",
+      "fake", "dry-run",
     ].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
@@ -665,16 +642,16 @@ async function createDesign(brief, flags) {
     vibe: flags.vibe,
   };
   const created = await request("POST", "/designs", body, "json");
-  const studio = `https://v-1.design/studio/${created.projectId}`;
+  const share = `${WEB_URL}/share/${created.projectId}`;
   if (flags.wait) {
     await waitForDesign(created.projectId, flags);
     return;
   }
-  if (flags.json) printJson({ ...created, studioUrl: studio });
+  if (flags.json) printJson({ ...created, shareUrl: share });
   else {
     console.log(`Started ${created.appName}`);
     console.log(`Project: ${created.projectId}`);
-    console.log(`Open: ${studio}`);
+    console.log(`Open: ${share}`);
     console.log(`Run: v1design designs get ${created.projectId}`);
   }
 }
@@ -689,6 +666,10 @@ async function main() {
   if (cmd === "connect" || cmd === "setup") { await connect(flags); return; }
   if (cmd === "status" || cmd === "auth:status") { await status(); return; }
   if (cmd === "logout" || cmd === "auth:logout") { await logout(); return; }
+  if (cmd === "host") {
+    const { hostCommand } = await import("./host.mjs");
+    await hostCommand(sub, flags); return;
+  }
   if (cmd === "studio" || cmd === "create") {
     // "studio" = the ENGINE forge (generates a NEW design, spends credits). `create` is a
     // deprecated alias kept so 0.3.x callers don't break — it warns then runs studio.
@@ -708,7 +689,13 @@ async function main() {
     await recipeCommand(sub, flags); return;
   }
   if (cmd === "search") { await searchEngine([sub, ...rest].filter(Boolean).join(" "), flags); return; }
-  if (cmd === "pull") { await pull(sub, flags); return; }
+  if (cmd === "pull") {
+    const { resolvePullMode, pullIntoCommand } = await import("./pull.mjs");
+    if (!flags.project && resolvePullMode(flags) === "zip") { await pull(sub, flags); return; }
+    const res = await pullIntoCommand(sub, flags);
+    if (res && res.status === "brief") process.exitCode = 1;
+    return;
+  }
   if (cmd === "skill" && sub === "install") { await installSkill(flags); return; }
   if (cmd === "library" && (!sub || sub === "help" || sub === "--help" || sub === "-h")) { libraryUsage(); return; }
   if (cmd === "library" && sub === "search") { await searchLibrary(rest.join(" "), flags); return; }

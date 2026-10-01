@@ -38,7 +38,7 @@ function openBrowser(url: string) {
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const POLL_INTERVAL_MS = 2000;
 
-/** Thrown when the engine has no /auth/device/poll route (older deploy) so we can fall back to loopback. */
+/** Thrown when the engine has no device-flow routes (older deploy) so we can fall back to loopback. */
 class DeviceUnsupported extends Error {}
 
 function sleep(ms: number): Promise<void> {
@@ -75,7 +75,7 @@ export async function login(): Promise<void> {
   // same-machine loopback callback with V1_DESIGN_LOOPBACK=1.
   //
   // Deploy order matters: ship the web /authorize change BEFORE the engine. If the engine has the
-  // /auth/device/poll route but the web bundle is still the old one (no `session` support), the
+  // /auth/device/start|poll routes but the web bundle is still the old one (no `session` support), the
   // browser can't complete the flow and the poll never 404s, so the loopback fallback below can't
   // trigger. Web-first deploy avoids that window; the V1_DESIGN_LOOPBACK escape hatch covers the rest.
   if (process.env.V1_DESIGN_LOOPBACK === "1") {
@@ -96,19 +96,36 @@ export async function login(): Promise<void> {
 }
 
 /**
- * Device (polling) flow — no localhost callback. The CLI mints a high-entropy session id, opens the
- * authorize page, and polls the engine until the user authorizes. The code the engine returns is
- * still PKCE-bound, so it is useless without the verifier that never leaves this process.
+ * Device (polling) flow — no localhost callback. The CLI mints a high-entropy session id, registers
+ * it with its user code at /auth/device/start, opens the authorize page, and polls the engine until
+ * the user authorizes. The code the engine returns is still PKCE-bound, so it is useless without the
+ * verifier that never leaves this process.
  */
 async function deviceLogin(apiUrl: string, webUrl: string): Promise<void> {
-  const sessionId = base64url(randomBytes(32));
+  let sessionId = base64url(randomBytes(32));
   const userCode = makeUserCode();
   const codeVerifier = base64url(randomBytes(32));
   const codeChallenge = base64url(createHash("sha256").update(codeVerifier).digest());
+  // Register the session + user code BEFORE opening the browser: the authorize page shows the code the
+  // engine stored (not anything in the URL), so a crafted link can't choose the code you're asked to match.
+  const start = () =>
+    fetch(`${apiUrl}/auth/device/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session: sessionId, user_code: userCode }),
+    });
+  let started = await start();
+  if (started.status === 409) {
+    // Session id collision (practically impossible with 256-bit ids) — mint a fresh one and retry once.
+    sessionId = base64url(randomBytes(32));
+    started = await start();
+  }
+  if (started.status === 404) throw new DeviceUnsupported();
+  if (started.status === 429) throw new Error("authorization rate-limited — wait a minute and run `v1design connect` again");
+  if (!started.ok) throw new Error((await started.text()).slice(0, 300) || "could not start authorization");
   const authorizeUrl =
     `${webUrl}/authorize?session=${encodeURIComponent(sessionId)}` +
     `&client=v1design` +
-    `&user_code=${encodeURIComponent(userCode)}` +
     `&code_challenge=${encodeURIComponent(codeChallenge)}` +
     `&code_challenge_method=S256`;
 

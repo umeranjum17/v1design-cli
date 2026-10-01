@@ -1,6 +1,6 @@
 {
   "name": "@v1design/cli",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "type": "module",
   "description": "v-1.design CLI, local agent connector, and bundled Codex/Claude skill.",
   "license": "MIT",
@@ -27,6 +27,7 @@
     "bin",
     "src",
     "skills",
+    "LICENSE",
     "README.md",
     "RECIPE.md"
   ],
@@ -38,16 +39,18 @@
     "v1design-agent": "bin/agent.mjs"
   },
   "scripts": {
+    "test": "tsx --test 'test/**/*.test.mjs'",
     "typecheck": "tsc --noEmit",
     "check:bin": "node bin/cli.mjs help && node bin/agent.mjs help",
     "check:pack-install": "node scripts/check-packed-install.mjs",
     "prepack": "npm run typecheck && npm run check:bin"
   },
   "dependencies": {
+    "@byokit/openclaw": "0.3.4",
+    "@byokit/secrets": "0.5.0",
     "@clack/prompts": "^0.7.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "dotenv": "^17.4.2",
-    "picocolors": "^1.1.1",
     "tsx": "^4.22.3",
     "zod": "^4.4.3"
   },

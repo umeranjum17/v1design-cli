@@ -1,0 +1,10 @@
+{
+  "startedUtc": "2026-10-01T08:51:51Z",
+  "connectToCliExitSeconds": 6.698,
+  "connectToAuthorizeClickStartSeconds": 5.177,
+  "connectToAuthorizeClickReturnSeconds": 6.698,
+  "cliExitCode": 0,
+  "under30Seconds": true,
+  "environment": "localhost development, synthetic Umer",
+  "warmup": "website page, BFF routes and browser warmed before timing; automated code entry"
+}
