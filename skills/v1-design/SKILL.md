@@ -67,8 +67,9 @@ engineer.** **v-1.design is your design colleague**: a large, verified library o
 ship-grade apps — hundreds of designs and all their parts (screens, palettes, fonts,
 components, whole themes) that you can search and pull from.
 
-You don't invent design from nothing, and you **never run a mechanical colour-transform** —
-no hue math, no blind regex recolour. But you ARE on the hook for the result being COMPLETE:
+You don't invent design from nothing, and you **never hand-roll a mechanical colour-transform** —
+no hue math of your own, no blind regex recolour (the one sanctioned transform is `v1design vibe`,
+below — deterministic, token-scoped, leak-free by construction). But you ARE on the hook for the result being COMPLETE:
 you and the library go back and forth, the way an engineer and a designer build together —
 **ask the library → pull a real designed piece → use it → look hard at every screen → fix what's
 off → refine** — until it's genuinely something you'd ship, with nothing half-done.
@@ -78,12 +79,14 @@ off → refine** — until it's genuinely something you'd ship, with nothing hal
 a build, for ANY design decision in it — a colour, a palette, a screen, a layout, a font, a
 logo, a re-skin — your **first move is `v1design search` and pull a real one** from the library.
 **Do NOT compute it, pick hexes by hand, or hand-write a palette/style.** That's the whole point:
-the library is 392 verified, designer-made systems — retrieve, don't reinvent. (Outside a
+the library is 458 verified, designer-made systems — retrieve, don't reinvent. (Outside a
 v1design build — i.e. v1design was never mentioned — none of this applies; just build normally.)
 - **"Make it teal"** = `v1design search "teal" --type palette` (or a teal design), pull that
   real palette's `theme get`/`colors get`, and apply it — **not** "shift the hue to teal" in
   your head. A pulled palette is a designer's full, balanced system; a hand-tweaked hue is a
-  guess.
+  guess. Exception: inside an already-scaffolded (token-driven) app, `v1design vibe "teal"`
+  is the sanctioned shortcut — a deterministic OKLCH transform over the token block,
+  leak-free by construction because every screen styles via `var(--token)`.
 - Need a screen, a chart, a pricing block, an empty state? Search and pull a real one first.
 - Only hand-edit when the library genuinely has nothing close — and say so when you do.
 

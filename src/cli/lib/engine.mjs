@@ -7,7 +7,7 @@ import { stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, parse as parsePath, resolve, sep } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { readCredentials, DEFAULT_API_URL } from "../auth.ts";
+import { readCredentials, DEFAULT_API_URL, DEFAULT_WEB_URL } from "../auth.ts";
 
 const DESIGN_REF_ALIASES = {
   "aetra-deploy": "aetra-a3e7c2b1",
@@ -35,9 +35,11 @@ export async function loadCredentials() {
 /** A 402 from a gated library design — carries an actionable message. */
 export class LibraryAccessError extends Error {
   constructor(ref) {
+    const web = (process.env.V1_DESIGN_WEB_URL || DEFAULT_WEB_URL || "https://v-1.design").replace(/\/$/, "");
     super(
-      `"${ref}" requires v-1.design library access (402).\n` +
-      `Open it with: v1design designs get ${ref}\n` +
+      `"${ref}" needs v-1.design library access (402).\n` +
+      `Unlock it once with Lifetime (one-time) or a plan: ${web}/pricing\n` +
+      `Then run: v1design pull ${ref}\n` +
       `Or pick a free-tier design — list them with: v1design library search "<idea>" --json`
     );
     this.name = "LibraryAccessError";
