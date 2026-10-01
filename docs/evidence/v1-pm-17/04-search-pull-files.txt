@@ -1,0 +1,88 @@
+REAL localhost engine / synthetic Umer development authorization / fresh git repo
+$ v1design status
+Connected to http://localhost:18917
+[exit 0]
+
+$ v1design search analytics --surface web --json
+{
+  "query": "analytics",
+  "count": 1,
+  "results": [
+    {
+      "score": 3,
+      "type": "design",
+      "handle": "pulse-5f8a2c10",
+      "id": "5f8a2c10-1b2d-4e3f-9a01-7c5e3d9f0a11",
+      "slug": "pulse-5f8a2c10",
+      "appName": "Pulse",
+      "summary": "Revenue clarity, in real time.",
+      "category": "analytics",
+      "tags": [
+        "web",
+        "dashboard",
+        "light",
+        "saas",
+        "analytics",
+        "data",
+        "tabular"
+      ],
+      "surface": "web",
+      "tier": "free",
+      "screens": [
+        "Overview",
+        "Analytics",
+        "Customers",
+        "Settings",
+        "Revenue",
+        "Design System — Web"
+      ],
+      "views": {
+        "allTime": 0,
+        "last30Days": 0
+      },
+      "relevance": 100
+    }
+  ],
+  "backend": "mongo-text"
+}
+[exit 0]
+
+$ v1design pull pulse-5f8a2c10 --allow-project-write
+Wrote 18 files into <task-worktree>/scratchpad/repos/umer-demo:
+  new DESIGN.md
+  new design-tokens.json
+  new PROMPT.md
+  new WORK-ORDER.md
+  new work-order.json
+  new CLAUDE.md
+  new AGENTS.md
+  new .cursor/rules/v1design.mdc
+  new prompts/Overview.md
+  new prompts/Analytics.md
+  new prompts/Customers.md
+  new prompts/Settings.md
+  new screens/Overview.tsx
+  new screens/Analytics.tsx
+  new screens/Customers.tsx
+  new screens/Settings.tsx
+  new screens/Revenue.tsx
+  new .v1design/pull.json
+Next: ask your agent to follow WORK-ORDER.md to apply the design route by route.
+[exit 0]
+
+$ v1design pull pulse-5f8a2c10 --allow-project-write
+Already up to date: all 18 files in <task-worktree>/scratchpad/repos/umer-demo match pulse-5f8a2c10 — nothing written.
+[exit 0]
+
+$ git status --short
+?? .cursor/
+?? .v1design/
+?? AGENTS.md
+?? CLAUDE.md
+?? DESIGN.md
+?? PROMPT.md
+?? WORK-ORDER.md
+?? design-tokens.json
+?? prompts/
+?? screens/
+?? work-order.json
