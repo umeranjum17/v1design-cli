@@ -617,21 +617,21 @@ export async function hostCommand(sub, flags = {}) {
   if (sub === "status" || flags.status) return hostStatus(lane);
   if (sub === "signout" || sub === "logout" || flags.signout) return hostSignout(lane);
   if (sub === "help" || sub === "--help" || sub === "-h" || flags.help) {
-    console.log(`v1design host [--lane claude]
+    console.log(`Studio on your computer — v1design host
 
-Run the member-computer carrier for a plan lane (Studio, additive):
+Run Studio jobs using your own plan through BYOKit. Keep this command running:
+  v1design host                       Use your ChatGPT plan; sign in when needed
+  v1design host --lane claude         Use your Claude Pro/Max plan
+  v1design host [--lane claude] status  Show sign-in state for the selected plan
+  v1design host [--lane claude] signout Sign out of the selected plan on this computer
 
-  v1design host                  Sign in with your ChatGPT plan and stay online
-  v1design host --lane claude    Sign in with your Claude Pro/Max plan and stay online
-  v1design host --fake           Check the engine job contract offline (no sign-in, no engine)
-  v1design host status           Show whether this computer is signed in
-  v1design host signout          Sign out of the plan lane on this computer
-
-The Claude lane uses your own Claude Code login on this computer
-(subscription billing, never an API key); Anthropic's terms apply:
+The Claude option uses your own Claude Code login in BYOKit's isolated home
+(subscription billing, never an API key). Follow the login instructions printed
+at startup. Anthropic's terms apply:
 https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use
 
-Needs Node ${HOST_NODE_REQUIREMENT}. macOS/Linux only.`);
+Needs Node ${HOST_NODE_REQUIREMENT}. macOS/Linux only.
+Keep the computer online. Ctrl+C finishes the current job before exiting.`);
     return;
   }
   if (sub) throw new Error(`unknown host subcommand: ${sub} (see: v1design host help)`);
