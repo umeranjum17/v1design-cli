@@ -17,7 +17,7 @@ import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { OpenClawKit, words } from "@byokit/openclaw";
-import { createHostClient, mintHostKey } from "./host-relay.ts";
+import { createHostClient, hostConnectionBinding, mintHostKey } from "./host-relay.ts";
 import { readHostKey, writeHostKey } from "./host-secrets.mjs";
 import { readCredentials, DEFAULT_API_URL } from "./auth.ts";
 
@@ -150,8 +150,8 @@ export async function ensureHostKey({
   const connection = await readConnection();
   if (!connection?.key) return "";
   const hostIdValue = id ?? (await hostId(home));
+  const binding = hostConnectionBinding(connection, hostIdValue);
   const baseUrl = (process.env.V1_DESIGN_API_URL || connection.apiUrl || DEFAULT_API_URL).replace(/\/$/, "");
-  const binding = JSON.stringify([baseUrl, connection.key, connection.authorizedAt ?? null, hostIdValue]);
   const storage = { ...sealOptions, home, binding };
   const existing = await readHostKey(storage);
   if (existing) return existing;
@@ -332,6 +332,7 @@ export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
     const error = "invalid-input: job carries no message";
     return submitOutcome(client, job, { error });
   }
+  await client.assertCurrentConnection?.();
   let end;
   try {
     end = await kit.run(built.spec);
@@ -523,17 +524,16 @@ export async function signInIfNeeded({ kit, client, ask = askYesNo, lane = "chat
   return "signed-in";
 }
 
-export async function hostRun(client = null, lane = "chatgpt") {
+export async function hostRun(lane = "chatgpt") {
   const cfg = laneConfig(lane);
   checkNodeVersion();
   const stateDir = hostStateDir();
   guardSocketPath(stateDir);
   await ensureSecureDir(join(homedir(), ".v1design"));
   const id = await hostId();
-  const hostKey = await ensureHostKey({ id }); // sealed via BYOKit; "" until the engine provisions one
-  client ??= createHostClient({ hostKey, hostId: id });
-  client.setHostKey(hostKey);
-  client.setHostId(id);
+  const connection = await readCredentials();
+  const hostKey = await ensureHostKey({ id, readConnection: async () => connection });
+  const client = createHostClient({ hostKey, hostId: id, connection });
   const kit = new OpenClawKit(buildKitOptions({ stateDir, engineDir: hostRoot() }));
   const ctl = createLoopControl();
   const onSigint = () => {
@@ -645,5 +645,5 @@ Keep the computer online. Ctrl+C finishes the current job before exiting.`);
     return;
   }
   if (sub) throw new Error(`unknown host subcommand: ${sub} (see: v1design host help)`);
-  return hostRun(null, lane);
+  return hostRun(lane);
 }
