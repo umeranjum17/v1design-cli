@@ -56,8 +56,10 @@ Generate a brand-new design with the ENGINE forge (spends credits — only on an
   v1design designs list [--json]
   v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip] [--allow-project-write]
   v1design pull <design-or-brief> [--into <dir>] [--dry-run] [--agents claude,codex,cursor] [--zip] [--out handoff.zip] [--allow-project-write]
+  v1design pull --project <project-id> [--into <dir>] [--dry-run]   # a Studio run you own (owner-only)
       (inside a project — a package.json or git repo — pull writes DESIGN.md, tokens,
-       prompts and agent rules into the repo; --zip keeps the handoff-zip download.)
+       prompts, WORK-ORDER.md and agent rules into the repo; --zip keeps the handoff-zip download.
+       After a pull, ask your agent to follow WORK-ORDER.md to apply the design route by route.)
   v1design screens get <design-ref> <screen-name> [--out Screen.tsx] [--json] [--allow-project-write]
   v1design tokens get <design-ref> [--out tokens.json]
   v1design theme  get <design-ref> [--css] [--out theme.css|theme.json]
@@ -718,7 +720,7 @@ async function main() {
   if (cmd === "search") { await searchEngine([sub, ...rest].filter(Boolean).join(" "), flags); return; }
   if (cmd === "pull") {
     const { resolvePullMode, pullIntoCommand } = await import("./pull.mjs");
-    if (resolvePullMode(flags) === "zip") { await pull(sub, flags); return; }
+    if (!flags.project && resolvePullMode(flags) === "zip") { await pull(sub, flags); return; }
     const res = await pullIntoCommand(sub, flags);
     if (res && res.status === "brief") process.exitCode = 1;
     return;

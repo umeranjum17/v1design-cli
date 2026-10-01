@@ -9,6 +9,8 @@ import { promises as fs } from "node:fs";
 import {
   PACK_START,
   PACK_END,
+  PULL_STATE_REL,
+  SUPPORTED_PACK_VERSION,
   detectProjectRoot,
   resolvePullMode,
   targetDirFor,
@@ -16,6 +18,10 @@ import {
   extractBlock,
   mergeAgentFile,
   planPackWrites,
+  planFileWrite,
+  readPullState,
+  assertSupportedPackVersion,
+  fetchProjectPack,
   pullIntoCommand,
 } from "../src/cli/pull.mjs";
 import { LibraryAccessError } from "../src/cli/lib/engine.mjs";
@@ -24,20 +30,27 @@ process.env.V1_DESIGN_API_URL = "https://engine.test";
 process.env.V1_DESIGN_API_KEY = "fake-test-key";
 
 const block = (body) => `${PACK_START}\n${body}\n${PACK_END}\n`;
-const manifest = (rulesBody) => ({
+const TOKENS = '{"accent":"#123456"}\n';
+const { createHash } = await import("node:crypto");
+const TOKENS_HASH = createHash("sha256").update(TOKENS).digest("hex");
+const manifest = (rulesBody, overrides = {}) => ({
   version: 1,
   appName: "Demo App",
   designId: "demo-1",
+  tokensHash: TOKENS_HASH,
   files: [
     { path: "DESIGN.md", content: "# Demo App design system\n" },
-    { path: "design-tokens.json", content: '{"accent":"#123456"}\n' },
+    { path: "design-tokens.json", content: TOKENS },
     { path: "PROMPT.md", content: "Build the demo app.\n" },
+    { path: "WORK-ORDER.md", content: "# Work order\n\nFollow route by route.\n" },
+    { path: "work-order.json", content: JSON.stringify({ version: 1, designId: "demo-1", routes: [] }) + "\n" },
     { path: "agents/CLAUDE.md", content: `# Project rules\n\n${block(rulesBody)}` },
     { path: "agents/AGENTS.md", content: `# AGENTS.md\n\n${block(rulesBody)}` },
     { path: "agents/v1design.mdc", content: `---\ndescription: demo\n---\n\n${block(rulesBody)}` },
     { path: "prompts/Home.md", content: "Build the Home screen.\n" },
     { path: "screens/Home.tsx", content: "export default function Home() {}\n" },
   ],
+  ...overrides,
 });
 
 const SEARCH_RESULTS = {
@@ -50,14 +63,21 @@ const SEARCH_RESULTS = {
 const ok = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) });
 const fail = (status, body) => ({ ok: false, status, json: async () => body, text: async () => JSON.stringify(body) });
 
-// Fake engine: scenario "pack" serves the manifest, "denied" 402s, "missing" 404s.
+// Fake engine: scenario "pack" serves the manifest, "denied" 402s, "missing" 404s,
+// "forbidden" 403s the project pack, "gone" 404s it, "noauth" 401s it.
 function fakeEngine(scenario, rulesBody = "# v1 rules") {
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init = {}) => {
     const u = new URL(String(url));
     if (u.pathname === "/api/search") return ok(SEARCH_RESULTS);
     if (u.pathname.startsWith("/designs/") && u.searchParams.get("format") === "pack") {
       if (scenario === "denied") return fail(402, { error: "library_required" });
       if (scenario === "missing") return fail(404, { error: "not_found" });
+      return ok(manifest(rulesBody));
+    }
+    if (/^\/api\/projects\/[^/]+\/pack$/.test(u.pathname)) {
+      if (!String(init.headers?.authorization || "").startsWith("Bearer ")) return fail(401, { error: "unauthorized" });
+      if (scenario === "forbidden") return fail(403, { error: "forbidden" });
+      if (scenario === "gone") return fail(404, { error: "not_found" });
       return ok(manifest(rulesBody));
     }
     throw new Error(`unexpected engine call ${url}`);
@@ -93,7 +113,53 @@ test("pull into-mode writes the pack into the repo and prints the next step", as
     assert.ok((await fs.stat(join(dir, rel))).isFile(), `pack file written: ${rel}`);
   }
   assert.match(await fs.readFile(join(dir, "CLAUDE.md"), "utf8"), new RegExp(PACK_START.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.match(out(), /tell your agent "apply the v1 design"/);
+  assert.match(await fs.readFile(join(dir, "WORK-ORDER.md"), "utf8"), /Follow route by route/);
+  assert.match(out(), /ask your agent to follow WORK-ORDER\.md/);
+  const state = JSON.parse(await fs.readFile(join(dir, PULL_STATE_REL), "utf8"));
+  assert.equal(state.version, SUPPORTED_PACK_VERSION);
+  assert.equal(state.designId, "demo-1");
+  assert.equal(state.tokensHash, TOKENS_HASH);
+  assert.equal(state.source, "library");
+});
+
+test("second identical pull produces no changes", async () => {
+  fakeEngine("pack");
+  const dir = await mkproject();
+  const first = await pullIntoCommand("demo-1", {}, { dir });
+  assert.equal(first.status, "done");
+  assert.ok(first.plan.some((p) => p.mode !== "unchanged"), "first pull writes");
+  lines.length = 0;
+  const second = await pullIntoCommand("demo-1", {}, { dir });
+  assert.equal(second.status, "done");
+  assert.ok(second.plan.length > 0, "plan still lists files");
+  assert.ok(second.plan.every((p) => p.mode === "unchanged"), `second pull changes nothing, got: ${second.plan.filter((p) => p.mode !== "unchanged").map((p) => p.rel).join(",")}`);
+  assert.match(out(), /Wrote 0 files/);
+});
+
+test("pull warns when remote tokens moved since the last pull", async () => {
+  fakeEngine("pack");
+  const dir = await mkproject();
+  await pullIntoCommand("demo-1", {}, { dir });
+  lines.length = 0;
+  const moved = manifest("# v1 rules");
+  moved.tokensHash = "0".repeat(64);
+  moved.files = moved.files.map((f) => (f.path === "design-tokens.json" ? { ...f, content: '{"accent":"#654321"}\n' } : f));
+  await pullIntoCommand("demo-1", {}, { dir, fetchPack: async () => moved });
+  assert.match(out(), /stale tokens/);
+  assert.equal(await fs.readFile(join(dir, "design-tokens.json"), "utf8"), '{"accent":"#654321"}\n');
+  assert.equal(readPullState(dir).tokensHash, "0".repeat(64));
+});
+
+test("pull refuses an unknown future pack version", async () => {
+  fakeEngine("pack");
+  const dir = await mkproject();
+  await assert.rejects(
+    pullIntoCommand("demo-1", {}, { dir, fetchPack: async () => manifest("# v1 rules", { version: SUPPORTED_PACK_VERSION + 1 }) }),
+    /newer than this CLI understands/
+  );
+  assert.throws(() => assertSupportedPackVersion({ version: 99 }), /newer than this CLI understands/);
+  assert.doesNotThrow(() => assertSupportedPackVersion({ version: 1 }));
+  assert.doesNotThrow(() => assertSupportedPackVersion({}));
 });
 
 test("pull re-run replaces only the managed block, keeping member text", async () => {
@@ -120,6 +186,43 @@ test("pull --dry-run prints the plan and writes nothing", async () => {
   assert.equal(res.status, "dry-run");
   assert.match(out(), /dry run — nothing written/);
   assert.match(out(), /DESIGN\.md/);
+  assert.equal((await fs.readdir(dir)).sort().join(","), "package.json");
+});
+
+test("pull --project fetches the Studio run pack with auth and records it", async () => {
+  fakeEngine("pack");
+  const dir = await mkproject();
+  const res = await pullIntoCommand(undefined, { project: "proj-123" }, { dir });
+  assert.equal(res.status, "done");
+  assert.match(await fs.readFile(join(dir, "WORK-ORDER.md"), "utf8"), /Follow route by route/);
+  assert.match(out(), /ask your agent to follow WORK-ORDER\.md/);
+  const state = JSON.parse(await fs.readFile(join(dir, PULL_STATE_REL), "utf8"));
+  assert.equal(state.source, "project");
+  assert.equal(state.ref, "proj-123");
+});
+
+test("pull --project surfaces owner-only errors plainly", async () => {
+  const dir = await mkproject();
+  fakeEngine("forbidden");
+  await assert.rejects(pullIntoCommand(undefined, { project: "proj-123" }, { dir }), /owner-only \(403\)/);
+  fakeEngine("gone");
+  await assert.rejects(pullIntoCommand(undefined, { project: "proj-123" }, { dir }), /No Studio project "proj-123" \(404\)/);
+  const throwing = (status) => async () => { throw new Error(`GET /api/projects/p/pack failed (${status}): nope`); };
+  await assert.rejects(fetchProjectPack("p", throwing(401)), /needs sign-in \(401\)/);
+  await assert.rejects(fetchProjectPack("p", throwing(403)), /owner-only \(403\)/);
+  await assert.rejects(fetchProjectPack("p", throwing(404)), /No Studio project/);
+  await assert.rejects(fetchProjectPack(""), /Usage: v1design pull --project/);
+  await assert.rejects(pullIntoCommand(undefined, {}, { dir }), /^Error: Usage: v1design pull /);
+});
+
+test("pull --project --dry-run lists files and writes nothing", async () => {
+  fakeEngine("pack");
+  const dir = await mkproject();
+  const res = await pullIntoCommand(undefined, { project: "proj-123", "dry-run": true }, { dir });
+  assert.equal(res.status, "dry-run");
+  assert.match(out(), /dry run — nothing written/);
+  assert.match(out(), /WORK-ORDER\.md/);
+  assert.match(out(), new RegExp(PULL_STATE_REL.replace(/\\/g, "\\\\").replace(/\./g, "\\.")));
   assert.equal((await fs.readdir(dir)).sort().join(","), "package.json");
 });
 
@@ -183,6 +286,6 @@ test("merge helpers: extract replaces in place, appends when unmarked", () => {
   assert.match(mergeAgentFile("just notes\n", b), /just notes\n\n<!-- v1design:start -->/);
   assert.equal(mergeAgentFile(null, b), null);
   const planned = planPackWrites("/nonexistent-probe", manifest("R"), ["CLAUDE.md"]);
-  assert.deepEqual(planned.map((p) => p.rel).sort(), ["CLAUDE.md", "DESIGN.md", "PROMPT.md", "design-tokens.json",
-    join("prompts", "Home.md"), join("screens", "Home.tsx")].sort());
+  assert.deepEqual(planned.map((p) => p.rel).sort(), ["CLAUDE.md", "DESIGN.md", "PROMPT.md", "WORK-ORDER.md", "design-tokens.json",
+    "work-order.json", join("prompts", "Home.md"), join("screens", "Home.tsx")].sort());
 });
