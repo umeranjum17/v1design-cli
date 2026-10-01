@@ -55,7 +55,9 @@ Generate a brand-new design with the ENGINE forge (spends credits — only on an
   v1design library suggest "book app" [--surface web|mobile] [--limit 5] [--open] [--json]
   v1design designs list [--json]
   v1design designs get <studio-url|share-url|library-url|id|slug> [--json] [--full] [--zip out.zip] [--allow-project-write]
-  v1design pull <design-ref> [--out handoff.zip] [--allow-project-write]
+  v1design pull <design-or-brief> [--into <dir>] [--dry-run] [--agents claude,codex,cursor] [--zip] [--out handoff.zip] [--allow-project-write]
+      (inside a project — a package.json or git repo — pull writes DESIGN.md, tokens,
+       prompts and agent rules into the repo; --zip keeps the handoff-zip download.)
   v1design screens get <design-ref> <screen-name> [--out Screen.tsx] [--json] [--allow-project-write]
   v1design tokens get <design-ref> [--out tokens.json]
   v1design theme  get <design-ref> [--css] [--out theme.css|theme.json]
@@ -119,7 +121,7 @@ function parse(argv) {
     if ([
       "json", "wait", "full", "no-wait", "allow-project-write", "version", "open", "no-open", "loose-surface",
       "install", "run", "yes", "confirm", "strict", "no-verify", "reference-only", "heal", "png", "md", "zip", "css", "tells", "force",
-      "fake",
+      "fake", "dry-run",
     ].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
@@ -714,7 +716,13 @@ async function main() {
     await recipeCommand(sub, flags); return;
   }
   if (cmd === "search") { await searchEngine([sub, ...rest].filter(Boolean).join(" "), flags); return; }
-  if (cmd === "pull") { await pull(sub, flags); return; }
+  if (cmd === "pull") {
+    const { resolvePullMode, pullIntoCommand } = await import("./pull.mjs");
+    if (resolvePullMode(flags) === "zip") { await pull(sub, flags); return; }
+    const res = await pullIntoCommand(sub, flags);
+    if (res && res.status === "brief") process.exitCode = 1;
+    return;
+  }
   if (cmd === "skill" && sub === "install") { await installSkill(flags); return; }
   if (cmd === "library" && (!sub || sub === "help" || sub === "--help" || sub === "-h")) { libraryUsage(); return; }
   if (cmd === "library" && sub === "search") { await searchLibrary(rest.join(" "), flags); return; }
