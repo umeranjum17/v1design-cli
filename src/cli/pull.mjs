@@ -14,6 +14,12 @@ import { apiRequest, expandHome, normalizeRef, searchLibraryRemote } from "./lib
 export const PACK_START = "<!-- v1design:start -->";
 export const PACK_END = "<!-- v1design:end -->";
 
+/** The only pack format version this CLI understands (manifest.version). */
+export const SUPPORTED_PACK_VERSION = 1;
+
+/** Managed pull record: where the last pulled pack version + tokensHash live. */
+export const PULL_STATE_REL = join(".v1design", "pull.json");
+
 // The engine pack manifest carries agent rules under agents/ — the repo layout differs.
 const AGENT_REMAP = {
   "agents/CLAUDE.md": "CLAUDE.md",
@@ -74,6 +80,42 @@ export async function fetchPack(ref, request = apiRequest) {
   return manifest;
 }
 
+/** Fetch a Studio run pack (one chosen variation = its project id). Owner-only. */
+export async function fetchProjectPack(projectId, request = apiRequest) {
+  const id = String(projectId || "").trim();
+  if (!id) throw new Error("Usage: v1design pull --project <project-id> [--into <dir>] [--dry-run]");
+  try {
+    const manifest = await request("GET", `/api/projects/${encodeURIComponent(id)}/pack`);
+    if (!manifest || !Array.isArray(manifest.files)) {
+      throw new Error(`Engine did not return a project pack for "${id}" — is the engine on feature/v2?`);
+    }
+    return manifest;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/\(401\)/.test(msg)) {
+      throw new Error(`Studio project "${id}" needs sign-in (401). Run: v1design connect — then pull a project you own.`);
+    }
+    if (/\(403\)/.test(msg)) {
+      throw new Error(`Studio project "${id}" is owner-only (403). Sign in as the project owner, then: v1design pull --project ${id}`);
+    }
+    if (/\(404\)/.test(msg)) {
+      throw new Error(`No Studio project "${id}" (404). Check the id — it is the chosen variation's project id.`);
+    }
+    throw e;
+  }
+}
+
+/** Refuse a pack format newer than this CLI understands. */
+export function assertSupportedPackVersion(manifest) {
+  const v = manifest && manifest.version;
+  if (v != null && Number(v) > SUPPORTED_PACK_VERSION) {
+    throw new Error(
+      `Pack format version ${v} is newer than this CLI understands (version ${SUPPORTED_PACK_VERSION}). ` +
+      `Update @v1design/cli, then pull again.`
+    );
+  }
+}
+
 /** Split pack content into the pre-marker header and the managed block (inclusive). */
 export function extractBlock(content) {
   const text = String(content || "");
@@ -104,25 +146,43 @@ function assertInside(dir, rel) {
   return abs;
 }
 
+/** One planned write: new, updated, or unchanged (byte-identical — skipped on write). */
+export function planFileWrite(dir, rel, content) {
+  const abs = assertInside(dir, rel);
+  const text = String(content ?? "");
+  if (!existsSync(abs)) return { rel, abs, content: text, mode: "new" };
+  return { rel, abs, content: text, mode: readFileSync(abs, "utf8") === text ? "unchanged" : "updated" };
+}
+
+/** Read the last pull record ({ version, tokensHash, ... }) or null. */
+export function readPullState(dir) {
+  try {
+    return JSON.parse(readFileSync(join(dir, PULL_STATE_REL), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Plan every write: generated files wholesale, agent rules merged between
  * markers (created with the pack header when absent). Reads the repo so
- * --dry-run prints exactly what a real run would do.
+ * --dry-run prints exactly what a real run would do, and a second identical
+ * pull plans no changes.
  */
 export function planPackWrites(dir, manifest, agentTargets) {
   const wanted = new Set(agentTargets);
   const plan = [];
   for (const file of manifest.files || []) {
     const rel = AGENT_REMAP[file.path] ?? file.path;
-    const abs = assertInside(dir, rel);
     const isAgent = Object.values(AGENT_TARGETS).includes(rel);
     if (isAgent && !wanted.has(rel)) continue;
     const content = String(file.content ?? "");
     if (!isAgent) {
-      plan.push({ rel, abs, content, mode: existsSync(abs) ? "updated" : "new" });
+      plan.push(planFileWrite(dir, rel, content));
       continue;
     }
     const { header, block } = extractBlock(content);
+    const abs = assertInside(dir, rel);
     if (!existsSync(abs)) {
       plan.push({ rel, abs, content: `${header}${block}`, mode: "new" });
       continue;
@@ -166,20 +226,46 @@ async function briefFallback(input, opts = {}) {
 const isNotFound = (e) => /\(404\)/.test(e instanceof Error ? e.message : String(e));
 
 export async function pullIntoCommand(refInput, flags = {}, opts = {}) {
+  const projectId = typeof flags.project === "string" && flags.project.trim() ? flags.project.trim() : null;
   const input = String(refInput || "").trim();
-  if (!input) throw new Error("Usage: v1design pull <design-or-brief> [--into <dir>] [--dry-run] [--agents claude,codex,cursor]");
-  const ref = normalizeRef(input);
+  if (!input && !projectId) {
+    throw new Error("Usage: v1design pull <design-or-brief> [--into <dir>] [--dry-run] [--agents claude,codex,cursor] | v1design pull --project <project-id>");
+  }
   const dir = opts.dir || targetDirFor(flags, opts.cwd || process.cwd());
 
   let manifest;
-  try {
-    manifest = opts.fetchPack ? await opts.fetchPack(ref) : await fetchPack(ref);
-  } catch (e) {
-    if (isNotFound(e)) return briefFallback(input, opts);
-    throw e;
+  let source;
+  if (projectId) {
+    manifest = opts.fetchPack ? await opts.fetchPack(projectId) : await fetchProjectPack(projectId);
+    source = { kind: "project", ref: projectId };
+  } else {
+    const ref = normalizeRef(input);
+    try {
+      manifest = opts.fetchPack ? await opts.fetchPack(ref) : await fetchPack(ref);
+    } catch (e) {
+      if (isNotFound(e)) return briefFallback(input, opts);
+      throw e;
+    }
+    source = { kind: "library", ref };
+  }
+  assertSupportedPackVersion(manifest);
+
+  // Stale tokens: the remote pack's tokens moved since the last recorded pull.
+  const prior = readPullState(dir);
+  if (prior && manifest.tokensHash && prior.tokensHash && prior.tokensHash !== manifest.tokensHash) {
+    console.log(`Warning: remote design tokens changed since your last pull (stale tokens) — this pull overwrites design-tokens.json.`);
   }
 
   const plan = planPackWrites(dir, manifest, parseAgents(flags));
+  const state = {
+    version: manifest.version ?? SUPPORTED_PACK_VERSION,
+    designId: manifest.designId ?? null,
+    tokensHash: manifest.tokensHash ?? null,
+    source: source.kind,
+    ref: source.ref,
+  };
+  plan.push(planFileWrite(dir, PULL_STATE_REL, `${JSON.stringify(state, null, 2)}\n`));
+
   if (flags["dry-run"]) {
     console.log(`Would write ${plan.length} files into ${dir} (dry run — nothing written):`);
     for (const p of plan) console.log(`  ${p.mode} ${p.rel} (${Buffer.byteLength(p.content, "utf8")} bytes)`);
@@ -193,6 +279,10 @@ export async function pullIntoCommand(refInput, flags = {}, opts = {}) {
   const wrote = plan.filter((p) => p.mode !== "unchanged");
   console.log(`Wrote ${wrote.length} files into ${dir}:`);
   for (const p of wrote) console.log(`  ${p.mode} ${p.rel}`);
-  console.log(`Next: tell your agent "apply the v1 design".`);
+  if (plan.some((p) => p.rel === "WORK-ORDER.md")) {
+    console.log(`Next: ask your agent to follow WORK-ORDER.md to apply the design route by route.`);
+  } else {
+    console.log(`Next: tell your agent "apply the v1 design".`);
+  }
   return { status: "done", dir, plan };
 }
