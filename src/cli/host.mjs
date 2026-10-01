@@ -1,8 +1,11 @@
-// v1design host — the member-computer carrier for the ChatGPT-plan lane (Studio S3).
+// v1design host — the member-computer carrier for the plan lanes (Studio S3).
 //
 // Strictly additive: nothing here touches library, auth, billing or credits.
 // The host runs the pinned OpenClaw engine on the member's own computer via
 // @byokit/openclaw only — every AI/account/pairing path goes through the kit.
+// Default lane is the member's ChatGPT plan; `--lane claude` runs the same
+// job loop on the member's Claude Pro/Max via the kit's native Claude Code
+// subscription route (subscription billing, never an API key).
 //
 // Layout: engine install lives in ~/.v1design/host/ (lazy: the kit's prepare()
 // installs it on first run, never at CLI install time). Engine *state* lives
@@ -13,13 +16,38 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
-import { OpenClawKit } from "@byokit/openclaw";
+import { OpenClawKit, words } from "@byokit/openclaw";
 import { createHostClient } from "./host-relay.ts";
 import { readHostKey } from "./host-secrets.mjs";
 
 export const HOST_MEMBER = "me";
 export const HOST_AUTH_CHOICE = "openai-device-code";
 export const HOST_PROVIDER = "openai";
+
+/** Claude-plan lane (additive, behind `--lane claude`): the member's own
+ *  Claude Pro/Max via the kit's native Claude Code subscription route. */
+export const HOST_CLAUDE_AUTH_CHOICE = "anthropic-cli";
+export const HOST_CLAUDE_PROVIDER = "claude-cli";
+
+export const HOST_LANES = {
+  chatgpt: {
+    authChoice: HOST_AUTH_CHOICE,
+    provider: HOST_PROVIDER,
+    modelPrefix: "openai/",
+    heartbeatVia: "code",
+    label: "ChatGPT plan",
+  },
+  claude: {
+    authChoice: HOST_CLAUDE_AUTH_CHOICE,
+    provider: HOST_CLAUDE_PROVIDER,
+    modelPrefix: "claude-cli/",
+    heartbeatVia: "browser",
+    label: "Claude plan",
+  },
+};
+
+export const laneConfig = (lane) => HOST_LANES[lane] ?? HOST_LANES.chatgpt;
+export const laneOf = (flags = {}) => (flags.lane === "claude" ? "claude" : "chatgpt");
 
 /** Kit engine requirement (pinned OpenClaw engine): keep in sync with the kit. */
 export const HOST_NODE_REQUIREMENT = ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0";
@@ -108,17 +136,13 @@ export function buildKitOptions(o) {
 }
 
 export function signinFailureMessage(view) {
-  if (view.why === "expired") {
-    // BYOKit limitation (still present in @byokit/openclaw 0.3.3; the
-    // wait-until-expiry fix lands in the next openclaw release): sign-in
-    // fails if the member takes longer than 120 s to approve the device
-    // code (hardcoded wizard pull timeout). Surface it as expirable and
-    // let the member retry.
-    return "Code expired — approval took too long. Run `v1design host` again for a fresh code.";
-  }
-  if (view.why === "declined") return "Sign-in cancelled.";
-  if (view.why === "busy") return "Another sign-in is already in progress. Wait for it or run again.";
-  return view.error ? `ChatGPT sign-in failed: ${view.error}` : "ChatGPT sign-in failed. Run again.";
+  // The kit types cancel/expiry itself: `why` plus a plain-words `error`.
+  // Surface its sentence; fall back to its words only when the view has none.
+  if (view?.error) return view.error;
+  if (view?.why === "declined") return words("signin.cancelled");
+  if (view?.why === "expired") return words("signin.expired");
+  if (view?.why === "busy") return words("signin.busy");
+  return "ChatGPT sign-in failed. Run again.";
 }
 
 function askYesNo(question) {
@@ -177,7 +201,8 @@ export function mapKitViewToPost(view) {
  * schema, the model is instructed to answer in JSON and the text is parsed
  * before submit (wantJson).
  */
-export function buildRunSpec(job) {
+export function buildRunSpec(job, lane = "chatgpt") {
+  const cfg = laneConfig(lane);
   const input = job?.input && typeof job.input === "object" ? job.input : null;
   const message =
     (typeof input?.message === "string" && input.message) ||
@@ -186,11 +211,11 @@ export function buildRunSpec(job) {
     "";
   if (!message.trim()) return null;
   // The kit refuses any sessionKey outside agent:<member>:* and any model
-  // outside provider/model. This host is the ChatGPT-plan lane, so a bare
-  // model name means the member's own openai provider.
+  // outside provider/model. This host is a plan lane, so a bare model name
+  // means the member's own lane provider (openai/ or claude-cli/).
   const spec = { sessionKey: `agent:${HOST_MEMBER}:host-${job.id}`, member: HOST_MEMBER, message };
   if (typeof input.model === "string" && input.model) {
-    spec.model = input.model.includes("/") ? input.model : `openai/${input.model}`;
+    spec.model = input.model.includes("/") ? input.model : `${cfg.modelPrefix}${input.model}`;
   }
   const parts = [];
   if (typeof input.system === "string" && input.system) parts.push(input.system);
@@ -218,8 +243,8 @@ export function describeRunEnd(end) {
 }
 
 /** Claim one job, run it through the kit, submit the result or a typed failure. */
-export async function runJobAndSubmit({ kit, client, job }) {
-  const built = buildRunSpec(job);
+export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
+  const built = buildRunSpec(job, lane);
   if (!built) {
     const error = "invalid-input: job carries no message";
     await client.submit(job.id, { error });
@@ -269,7 +294,9 @@ export async function serveJobs({
   heartbeatMs = 30000,
   ctl = createLoopControl(),
   onEvent = () => {},
+  lane = "chatgpt",
 }) {
+  const via = laneConfig(lane).heartbeatVia;
   let lastBeat = 0;
   while (!ctl.draining) {
     const now = Date.now();
@@ -277,7 +304,7 @@ export async function serveJobs({
       lastBeat = now;
       // Signed in here by construction; the start-request flag is honoured
       // only while signed out, so the loop ignores it.
-      await client.heartbeat({ state: "signed-in", via: "code" });
+      await client.heartbeat({ state: "signed-in", via });
     }
     if (Date.now() < ctl.restUntil) {
       await sleep(pollMs);
@@ -296,7 +323,7 @@ export async function serveJobs({
     const claimed = await client.claim(job.id);
     if (!claimed) continue; // lost the race; poll again immediately
     onEvent({ type: "claimed", job: claimed });
-    const outcome = await runJobAndSubmit({ kit, client, job: claimed });
+    const outcome = await runJobAndSubmit({ kit, client, job: claimed, lane });
     if (outcome.restUntil) ctl.restUntil = outcome.restUntil;
     onEvent({ type: "settled", job: claimed, ...outcome });
   }
@@ -318,22 +345,58 @@ async function withKit(fn) {
   }
 }
 
-export async function hostStatus() {
+export async function hostStatus(lane = "chatgpt") {
+  const cfg = laneConfig(lane);
   return withKit(async (kit) => {
     const providers = await kit.providers(HOST_MEMBER);
     console.log(
-      providers.includes(HOST_PROVIDER)
-        ? `Host ready: ${HOST_MEMBER} signed in (ChatGPT plan).`
-        : "Host ready: not signed in. Run: v1design host",
+      providers.includes(cfg.provider)
+        ? `Host ready: ${HOST_MEMBER} signed in (${cfg.label}).`
+        : `Host ready: not signed in. Run: v1design host${lane === "chatgpt" ? "" : " --lane claude"}`,
     );
   });
 }
 
-export async function hostSignout() {
+export async function hostSignout(lane = "chatgpt") {
+  const cfg = laneConfig(lane);
   return withKit(async (kit) => {
-    await kit.signOut(HOST_MEMBER, HOST_PROVIDER);
-    console.log("Host signed out of the ChatGPT plan.");
+    await kit.signOut(HOST_MEMBER, cfg.provider);
+    console.log(`Host signed out of the ${cfg.label}.`);
   });
+}
+
+/**
+ * The Claude-lane consent + login instructions, built from the kit's own
+ * route row (billing, prerequisite, terms URL) — never our own paraphrase.
+ */
+export function claudeRouteOf(kit) {
+  try {
+    return kit.routes().find((r) => r.choice === HOST_CLAUDE_AUTH_CHOICE) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function claudeConsentWords(route) {
+  const billing = route?.billing ?? "subscription";
+  const terms = route?.termsUrl ? ` Anthropic's terms apply: ${route.termsUrl}` : "";
+  return (
+    `v1design host uses your own Claude Pro/Max plan on this computer via your own Claude Code login ` +
+    `(${billing} billing; never an API key).${terms}`
+  );
+}
+
+export const claudeIsolatedHome = (stateDir) => join(stateDir, "openclaw", "home");
+
+export function claudeLoginInstructions(stateDir, route) {
+  const home = claudeIsolatedHome(stateDir);
+  return [
+    route?.prerequisite ?? "Sign in through unmodified Claude Code on this machine; the login stays in Claude Code.",
+    "",
+    "  " + `HOME=${home} CLAUDE_CONFIG_DIR=${join(home, ".claude")} claude auth login`,
+    "",
+    "Then run `v1design host --lane claude` again to activate.",
+  ].join("\n");
 }
 
 /**
@@ -341,18 +404,31 @@ export async function hostSignout() {
  * "signed-in", or "declined". A web start-request is honoured only while
  * signed out and implies the owner consented on the web (TTY ask skipped).
  */
-export async function signInIfNeeded({ kit, client, ask = askYesNo }) {
-  if (await kit.signedIn(HOST_MEMBER, HOST_PROVIDER)) {
-    await client.heartbeat({ state: "signed-in", via: "code" });
+export async function signInIfNeeded({ kit, client, ask = askYesNo, lane = "chatgpt" }) {
+  const cfg = laneConfig(lane);
+  if (await kit.signedIn(HOST_MEMBER, cfg.provider)) {
+    await client.heartbeat({ state: "signed-in", via: cfg.heartbeatVia });
     return "already";
   }
   const polled = await client.poll();
   const webStart = polled?.startRequested === true;
-  if (!webStart && !(await ask(CONSENT_WORDS))) return "declined";
-  if (webStart) console.error("Web sign-in requested — continuing.");
+  if (lane === "claude") {
+    // The native route keeps login in Claude Code under the kit's isolated
+    // HOME: show the kit's Anthropic-terms caveat + login instructions, then
+    // ask Y/N before the first sign-in (skipped on a web start).
+    const route = claudeRouteOf(kit);
+    if (!webStart) {
+      console.error(claudeConsentWords(route));
+      console.error("");
+      console.error(claudeLoginInstructions(hostStateDir(), route));
+      console.error("");
+      if (!(await ask("Continue with your Claude Pro/Max plan?"))) return "declined";
+    } else console.error("Web sign-in requested — continuing.");
+  } else if (!webStart && !(await ask(CONSENT_WORDS))) return "declined";
+  else if (webStart) console.error("Web sign-in requested — continuing.");
   const signin = kit.signIn(
     HOST_MEMBER,
-    { authChoice: HOST_AUTH_CHOICE },
+    { authChoice: cfg.authChoice },
     (view) => {
       void showView(view);
       void client.heartbeat(mapKitViewToPost(view));
@@ -364,7 +440,8 @@ export async function signInIfNeeded({ kit, client, ask = askYesNo }) {
   return "signed-in";
 }
 
-export async function hostRun(client = null) {
+export async function hostRun(client = null, lane = "chatgpt") {
+  const cfg = laneConfig(lane);
   checkNodeVersion();
   const stateDir = hostStateDir();
   guardSocketPath(stateDir);
@@ -391,19 +468,19 @@ export async function hostRun(client = null) {
   await kit.start();
   try {
     await kit.ensureMember(HOST_MEMBER);
-    const signinState = await signInIfNeeded({ kit, client });
+    const signinState = await signInIfNeeded({ kit, client, lane });
     if (signinState === "declined") {
-      console.error("Consent declined. Run `v1design host` again to continue.");
+      console.error(`Consent declined. Run \`v1design host${lane === "chatgpt" ? "" : " --lane claude"}\` again to continue.`);
       return;
     }
     if (signinState === "signed-in") {
       const providers = await kit.providers(HOST_MEMBER);
-      console.error(`Signed in (ChatGPT plan): ${providers.join(", ") || HOST_PROVIDER}.`);
+      console.error(`Signed in (${cfg.label}): ${providers.join(", ") || cfg.provider}.`);
     } else {
-      console.error("Already signed in (ChatGPT plan).");
+      console.error(`Already signed in (${cfg.label}).`);
     }
     console.error("Host online. Press Ctrl-C to stop.");
-    await serveJobs({ kit, client, ctl });
+    await serveJobs({ kit, client, ctl, lane });
   } finally {
     process.removeListener("SIGINT", onSigint);
     await kit.stop();
@@ -411,20 +488,26 @@ export async function hostRun(client = null) {
 }
 
 export async function hostCommand(sub, flags = {}) {
-  if (sub === "status" || flags.status) return hostStatus();
-  if (sub === "signout" || sub === "logout" || flags.signout) return hostSignout();
+  const lane = laneOf(flags);
+  if (sub === "status" || flags.status) return hostStatus(lane);
+  if (sub === "signout" || sub === "logout" || flags.signout) return hostSignout(lane);
   if (sub === "help" || sub === "--help" || sub === "-h" || flags.help) {
-    console.log(`v1design host
+    console.log(`v1design host [--lane claude]
 
-Run the member-computer carrier for the ChatGPT-plan lane (Studio, additive):
+Run the member-computer carrier for a plan lane (Studio, additive):
 
-  v1design host            Sign in with your ChatGPT plan and stay online
-  v1design host status     Show whether this computer is signed in
-  v1design host signout    Sign out of the ChatGPT plan on this computer
+  v1design host                  Sign in with your ChatGPT plan and stay online
+  v1design host --lane claude    Sign in with your Claude Pro/Max plan and stay online
+  v1design host status           Show whether this computer is signed in
+  v1design host signout          Sign out of the plan lane on this computer
+
+The Claude lane uses your own Claude Code login on this computer
+(subscription billing, never an API key); Anthropic's terms apply:
+https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use
 
 Needs Node ${HOST_NODE_REQUIREMENT}. macOS/Linux only.`);
     return;
   }
   if (sub) throw new Error(`unknown host subcommand: ${sub} (see: v1design host help)`);
-  return hostRun();
+  return hostRun(null, lane);
 }

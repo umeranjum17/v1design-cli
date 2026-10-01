@@ -10,13 +10,19 @@ import { createHostClient } from "../src/cli/host-relay.ts";
 import {
   buildKitOptions,
   buildRunSpec,
+  claudeConsentWords,
+  claudeIsolatedHome,
+  claudeLoginInstructions,
   createLoopControl,
   describeRunEnd,
+  laneOf,
   mapKitViewToPost,
   runJobAndSubmit,
   serveJobs,
   signInIfNeeded,
   sleep,
+  HOST_CLAUDE_AUTH_CHOICE,
+  HOST_CLAUDE_PROVIDER,
   HOST_MEMBER,
 } from "../src/cli/host.mjs";
 
@@ -357,4 +363,113 @@ test("host: a real kit run on the fake gateway submits its text", async () => {
   } finally {
     await kit.stop();
   }
+});
+
+// ---- Claude-plan lane: native Claude Code subscription route, kit fakes only ----
+
+test("claude lane: defaults stay ChatGPT; --lane claude selects the native route", () => {
+  assert.equal(laneOf({}), "chatgpt");
+  assert.equal(laneOf({ lane: "claude" }), "claude");
+  assert.equal(laneOf({ lane: "bogus" }), "chatgpt");
+  assert.equal(HOST_CLAUDE_AUTH_CHOICE, "anthropic-cli");
+  assert.equal(HOST_CLAUDE_PROVIDER, "claude-cli");
+});
+
+test("claude lane: bare job models mean the member's claude-cli provider", () => {
+  assert.equal(buildRunSpec({ id: "c1", input: { message: "x", model: "m" } }, "claude").spec.model, "claude-cli/m");
+  assert.equal(
+    buildRunSpec({ id: "c2", input: { message: "x", model: "openai/gpt-x" } }, "claude").spec.model,
+    "openai/gpt-x",
+  );
+  assert.equal(buildRunSpec({ id: "c3", input: { message: "x", model: "gpt-x" } }).spec.model, "openai/gpt-x");
+});
+
+test("claude lane: consent shows the kit's billing + Anthropic terms and the isolated login", async () => {
+  const { OpenClawKit } = await import("@byokit/openclaw");
+  const stateDir = mkdtempSync(join(tmpdir(), "v1host-claude-"));
+  const kit = new OpenClawKit({
+    ...buildKitOptions({ stateDir, engineDir: join(stateDir, "engine") }),
+    transport: (await import("@byokit/openclaw/testing")).fakeGateway().factory,
+    spawnEngine: false,
+  });
+  await kit.prepare();
+  await kit.start();
+  try {
+    const route = kit.routes().find((r) => r.choice === HOST_CLAUDE_AUTH_CHOICE);
+    assert.equal(route.provider, HOST_CLAUDE_PROVIDER);
+    assert.equal(route.billing, "subscription");
+    assert.match(route.termsUrl ?? "", /claude\.com\/docs/);
+    const consent = claudeConsentWords(route);
+    assert.match(consent, /Claude Pro\/Max/);
+    assert.match(consent, /subscription billing/);
+    assert.match(consent, /never an API key/);
+    assert.match(consent, /Anthropic's terms/);
+    const home = claudeIsolatedHome(stateDir);
+    assert.equal(home, join(stateDir, "openclaw", "home"));
+    assert.match(claudeLoginInstructions(stateDir, route), /claude auth login/);
+    assert.match(claudeLoginInstructions(stateDir, route), new RegExp(home.replace(/[/\\]/g, "[/\\\\]")));
+  } finally {
+    await kit.stop();
+  }
+});
+
+test("claude lane: consent declined stops before sign-in; accepted signs in via the kit", async () => {
+  const { OpenClawKit } = await import("@byokit/openclaw");
+  const { fakeGateway } = await import("@byokit/openclaw/testing");
+  const stateDir = mkdtempSync(join(tmpdir(), "v1host-claude-signin-"));
+  let claudeAuthed = false;
+  const fake = fakeGateway({
+    "openclaw.setup.detect": () => ({ candidates: [{ kind: "claude-cli", credentials: claudeAuthed }] }),
+    "openclaw.setup.activate": () => {
+      claudeAuthed = true;
+      return { ok: true };
+    },
+  });
+  const kit = new OpenClawKit({
+    ...buildKitOptions({ stateDir, engineDir: join(stateDir, "engine") }),
+    transport: fake.factory,
+    spawnEngine: false,
+  });
+  await kit.prepare();
+  await kit.start();
+  try {
+    await kit.ensureMember(HOST_MEMBER);
+    const client = clientFor();
+    assert.equal(await signInIfNeeded({ kit, client, lane: "claude", ask: async () => false }), "declined");
+    assert.ok(!fake.calls.some((c) => c.method === "openclaw.setup.activate"));
+    // Kit-level: without the Claude Code login the native route fails typed.
+    const noLogin = await kit.signIn(HOST_MEMBER, { authChoice: HOST_CLAUDE_AUTH_CHOICE }, () => {}).done;
+    assert.equal(noLogin.state, "failed");
+    assert.match(noLogin.error ?? "", /Claude Code/);
+    // The person runs `claude auth login` in the isolated HOME; the kit then activates.
+    claudeAuthed = true;
+    const activated = await kit.signIn(HOST_MEMBER, { authChoice: HOST_CLAUDE_AUTH_CHOICE }, () => {}).done;
+    assert.equal(activated.state, "done");
+    assert.equal(await signInIfNeeded({ kit, client, lane: "claude", ask: async () => true }), "already");
+    assert.ok(await kit.signedIn(HOST_MEMBER, HOST_CLAUDE_PROVIDER));
+    const states = engine.heartbeats.map((h) => h.signIn?.state);
+    assert.ok(states.includes("signed-in"));
+  } finally {
+    await kit.stop();
+  }
+});
+
+test("claude lane: the job loop heartbeats the lane via and runs claude-plan jobs", async () => {
+  const client = clientFor();
+  engine.enqueue({ message: "draft a hero", model: "opus" });
+  const seen = [];
+  const kit = stubKit({
+    run: async (spec) => {
+      seen.push(spec);
+      return { ok: true, text: "claude did it" };
+    },
+  });
+  const ctl = createLoopControl();
+  const done = serveJobs({ kit, client, pollMs: 5, heartbeatMs: 5, ctl, lane: "claude" });
+  while (engine.jobs[0].status !== "done") await sleep(10);
+  ctl.draining = true;
+  await done;
+  assert.equal(seen[0].model, "claude-cli/opus");
+  assert.ok(engine.heartbeats.some((h) => h.signIn?.via === "browser"));
+  assert.equal(engine.jobs[0].result, "claude did it");
 });

@@ -51,16 +51,20 @@ test("host: sign-in choice is the ChatGPT device-code route for member me", () =
   assert.equal(HOST_AUTH_CHOICE, "openai-device-code");
 });
 
-test("host: an expired device code reads as expirable with a retry", () => {
-  assert.match(
-    signinFailureMessage({ state: "failed", via: "code", why: "expired" }),
-    /code expired/i,
+test("host: the kit's typed cancel/expiry sentences surface as-is", async () => {
+  const { words } = await import("@byokit/openclaw");
+  // Expiry and cancel carry the kit's own plain-words error; the host shows it.
+  assert.equal(
+    signinFailureMessage({ state: "failed", via: "code", why: "expired", error: words("signin.expired") }),
+    words("signin.expired"),
   );
-  assert.match(
-    signinFailureMessage({ state: "failed", via: "code", why: "expired" }),
-    /run `v1design host` again/i,
+  assert.equal(
+    signinFailureMessage({ state: "failed", via: "code", why: "declined", error: words("signin.cancelled") }),
+    words("signin.cancelled"),
   );
-  assert.match(signinFailureMessage({ state: "failed", via: "code", why: "declined" }), /cancelled/i);
+  // Views without a sentence fall back to the kit's words by `why`.
+  assert.equal(signinFailureMessage({ state: "failed", via: "code", why: "expired" }), words("signin.expired"));
+  assert.equal(signinFailureMessage({ state: "failed", via: "code", why: "declined" }), words("signin.cancelled"));
 });
 
 test("host: the S2 client is offline-tolerant when the engine is unreachable", async () => {
