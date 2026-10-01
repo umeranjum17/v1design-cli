@@ -44,7 +44,7 @@ v1design vibe "darker" --in ./app
 v1design vibe "teal fintech" --in ./app
 
 # add a new screen in the app's own system
-v1design compose <ref> --add "Settings,Billing"
+v1design compose <ref> --add "Settings,Billing" --yes
 
 # discovery + review
 v1design compare <refA> <refB> --surface web
@@ -56,7 +56,7 @@ v1design screenshots <ref> --out ./shots
 `v1design explore` pulls a few library designs as inspiration **and** runs your **local
 recipe** — a folder of markdown that *you* own (`recipe.md` plus your own doctrine, jury,
 inspiration). The CLI ships **no design doctrine or workflow of its own**; what "explore"
-does is defined entirely by your recipe. It spends no engine credits.
+does is defined entirely by your recipe.
 
 ```bash
 v1design explore "an invoicing tool for freelancers"   # pull inspiration + run your recipe
@@ -80,15 +80,27 @@ v1design detect ./src --json     # CI-friendly output
 v1design detect --tells          # list every rule
 ```
 
-## Generate a new design with the engine forge (studio)
+## Studio on your computer
+
+Keep your computer online and run Studio jobs with your own subscription through
+BYOKit:
 
 ```bash
-# the v-1.design engine generates a finished design — this SPENDS CREDITS, so it needs --yes
-v1design studio "a fintech dashboard" --yes
+v1design host                       # ChatGPT plan; sign in when needed
+v1design host --lane claude         # Claude Pro/Max plan
+v1design host status                # selected plan's sign-in state
+v1design host --lane claude status
+v1design host help                  # setup and requirements
 ```
 
-`v1design studio` is the hosted forge (was `v1design create`, which is now a deprecated alias).
-For "generate new designs" in general, prefer `explore` (your own recipe, no credits).
+Keep the host command running while Studio works. Ctrl+C finishes the current job
+before exiting. `v1design host [--lane claude] signout` signs out only the selected
+plan on this computer. Claude uses your own Claude Code login in BYOKit's isolated
+home; follow the instructions printed at startup. Subscription billing applies,
+with no API key for this route, and [Anthropic's terms apply](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use).
+The host supports macOS/Linux and needs Node `>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0`.
+
+Pull a finished Studio run you own with `v1design pull --project <project-id>`.
 
 You can also use the lower-level discovery + pull commands directly:
 
@@ -102,9 +114,37 @@ v1design screens get "https://v-1.design/share/<id>" Home
 
 For a brand-new project, start with `library suggest`: it shows the top five matching Library references, opens their pages when `--open` is passed, and gives the agent a clear pause point to ask which direction resonates before pulling artifacts or writing code.
 
-Generated references default to `~/.v1design/workspace/<design-ref>`, for example `~/.v1design/workspace/aetra-a3e7c2b1/handoff.zip`. The CLI refuses to write inside a Git worktree unless `--allow-project-write` is passed, which keeps private repos read-only unless you deliberately choose one as the target app.
+## Pull into your app
 
-Library search and suggestions are read-only discovery. Pulling artifacts, running the `studio` forge (which spends credits), or editing an app should happen only after you explicitly ask the agent to use a chosen v-1.design reference in the project.
+Inside a project (a directory with `package.json` or `.git`, or a child of it),
+`v1design pull <ref>` writes the pack into the detected project root. `--into <dir>`
+chooses another target and selects pack mode even outside a project. For a Studio
+run, `--project <project-id>` selects pack mode and requires you to own the run.
+Preview pack writes with `--dry-run`; omit it to write. Pack writes do **not** need
+`--allow-project-write`.
+
+```bash
+v1design pull <slug> --into ./app --dry-run
+v1design pull <slug> --into ./app
+v1design pull --project <project-id> --into ./app --dry-run
+```
+
+A pack includes design guidance, tokens, screen code, prompts and `WORK-ORDER.md`.
+Ask your agent to follow that work order route by route. Re-pulling replaces pack
+files; agent rules merge only between the managed markers, preserving your text
+outside them. Inspect the preview before updating an existing app.
+
+Outside a project, plain `pull <ref>` downloads a ZIP. `--zip` or `--out <file>`
+also selects ZIP mode for reference pulls; `--dry-run` does not apply to ZIP
+mode. ZIPs default to `~/.v1design/workspace/<design-ref>/handoff.zip`, and writing
+one into a Git worktree requires `--allow-project-write`. Scaffold output also
+defaults to that workspace and requires the flag for Git-worktree writes.
+
+Library search and suggestions are read-only discovery. Pulling artifacts,
+starting generation or editing an app requires an explicit request to use
+v-1.design in the chosen project. Generation commands such as `studio` and
+`compose` retain their explicit `--yes` confirmation safeguard; do not run them
+just to discover references.
 
 ## What This Package Contains
 

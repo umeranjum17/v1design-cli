@@ -1,6 +1,7 @@
 // Studio S3: v1design host carrier on @byokit/openclaw 0.3.0.
 // Pure checks plus fakeGateway integration: no engine install, no network, no account.
 import { test } from "node:test";
+import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -94,5 +95,35 @@ test("host: kit starts on the fake gateway with member me signed out", async () 
     assert.deepEqual(kit.toolNames(), []);
   } finally {
     await kit.stop();
+  }
+});
+
+
+test("CLI help is a short task guide and host help describes the real plan routes", () => {
+  const cli = new URL("../bin/cli.mjs", import.meta.url);
+  const run = (...args) => execFileSync(process.execPath, [cli.pathname, ...args], {
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  const help = run("help");
+  assert.ok(help.trimEnd().split("\n").length <= 25);
+  assert.deepEqual(help.split("\n").filter((line) => /^(Connect|Find|Pull|Studio on your computer)$/.test(line)),
+    ["Connect", "Find", "Pull", "Studio on your computer"]);
+  assert.match(help, /--dry-run previews pack writes only/);
+  assert.match(help, /ZIP mode has no dry-run/);
+  assert.match(help, /no --allow-project-write needed/);
+  for (const args of [[], ["--help"], ["-h"]]) assert.equal(run(...args), help);
+
+  const hostHelp = run("host", "help");
+  assert.match(hostHelp, /ChatGPT plan/);
+  assert.match(hostHelp, /Claude Pro\/Max plan/);
+  assert.match(hostHelp, /BYOKit's isolated home/);
+  assert.match(hostHelp, /macOS\/Linux only/);
+  assert.match(hostHelp, /Ctrl\+C finishes the current job/);
+  for (const args of [["host", "-h"], ["host", "--lane", "claude", "help"]]) {
+    assert.equal(run(...args), hostHelp);
+  }
+  for (const output of [help, hostHelp]) {
+    assert.doesNotMatch(output, /credits|forge|deprecated|carrier|additive|--fake/i);
   }
 });

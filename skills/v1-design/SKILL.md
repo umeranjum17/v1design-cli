@@ -1,6 +1,6 @@
 ---
 name: v1-design
-description: Search and pull from the v-1.design library, then build/recolour/remix a real app from it. LIBRARY-FIRST — the default is search + pull (incl. the user's own designs); NEVER create or generate a new design (v1design create / compose) unless the user EXPLICITLY asks to create one — that spends credits. HARD GATE — use this skill ONLY when the user EXPLICITLY writes "v1design" / "v-1.design" (or pastes a v-1.design library/studio/share link or slug), OR the work is already on a v-1.design-derived app started that way in this session. If v1design was NOT explicitly mentioned, do NOT use this skill at all — even for UI / design / colour / theme / layout work; build with whatever the user asked for using your normal tools. Triggers: "use v1design to build …", a v-1.design link/slug, or a follow-up inside an explicitly-v1design session (add a screen, recolour, re-skin, remix, search the library). You are the engineer; v-1.design is your design colleague; the user is the PM.
+description: Search and pull from the v-1.design library, then build/recolour/remix a real app from it. LIBRARY-FIRST — the default is search + pull (incl. the user's own designs); NEVER create or generate a new design (v1design studio / compose) unless the user EXPLICITLY asks to create one. HARD GATE — use this skill ONLY when the user EXPLICITLY writes "v1design" / "v-1.design" (or pastes a v-1.design library/studio/share link or slug), OR the work is already on a v-1.design-derived app started that way in this session. If v1design was NOT explicitly mentioned, do NOT use this skill at all — even for UI / design / colour / theme / layout work; build with whatever the user asked for using your normal tools. Triggers: "use v1design to build …", a v-1.design link/slug, or a follow-up inside an explicitly-v1design session (add a screen, recolour, re-skin, remix, search the library). You are the engineer; v-1.design is your design colleague; the user is the PM.
 ---
 
 # v-1.design — your design colleague
@@ -15,7 +15,8 @@ v1design, this skill is the priority and everything below applies.
 ## Library-first — THREE intents, don't conflate them (hard rule)
 This CLI is a **library + a recipe RUNNER**. Three distinct things:
 1. **Search / pull** — `v1design search` / `library` / `designs get` / `screens get` /
-   `theme|tokens|colors get`. Free, read-only, always fine (incl. the user's OWN designs).
+   `theme|tokens|colors get`. Search is read-only; pull may write files (see Boundaries).
+   Include the user's OWN designs. Write only after an explicit pull/use/build request.
 2. **Explore — TWO SEPARATE LANES → a browser gallery the user picks from** — `v1design explore "<idea>"`.
    The DEFAULT for "explore designs / generate new ones". The whole experience, end to end:
    - **FRESH FOLDER, always.** The CLI prints a per-idea folder (`v1-explore/<slug>[-<surface>]/`).
@@ -55,10 +56,18 @@ This CLI is a **library + a recipe RUNNER**. Three distinct things:
      - **ONE cohesive screen**, not a long scrolling magazine page. Mobile ≈ 430×950–1150; web ≈ a clean
        above-the-fold hero. Generous whitespace, premium, fully procedural, real copy (no lorem).
      - **LIGHT palette by default** (dark only if the chosen movement truly demands it; ≤1 dark per set).
-   Spends no engine credits; the CLI ships no doctrine. Keep the lanes separate — never blend A into B.
-3. **Studio forge (engine, spends credits)** — `v1design studio "<brief>" --yes` (was
-   `v1design create`) and `v1design compose`. GENERATE on the engine and SPEND CREDITS; run ONLY
-   on an explicit "studio/forge" ask (`--yes`; MCP tools require `confirm:true`).
+   The CLI ships no doctrine. Keep the lanes separate — never blend A into B.
+3. **Studio on your computer** — `v1design host` runs Studio jobs using the user's
+   ChatGPT plan through BYOKit; `v1design host --lane claude` uses Claude Pro/Max.
+   Keep the host running and the computer online. Use `v1design host help` for setup
+   and requirements; `v1design host [--lane claude] status` checks the selected plan.
+   Claude uses the user's Claude Code login in BYOKit's isolated home (subscription
+   billing, no API key); follow startup instructions and respect Anthropic's terms.
+   Never sign out an existing account without the user's request.
+   Pull a finished run with `v1design pull --project <project-id>` (owner-only).
+   Generation commands (`v1design studio "<brief>" --yes`, `v1design compose <ref>
+   --add "<Name>" --yes`) require an explicit generation request. Keep the `--yes`
+   safeguard; MCP generation tools require `confirm:true`.
 When unsure: search/pull or **explore** — never studio.
 
 ## The relationship
@@ -208,9 +217,23 @@ design language.** A bolted-on graft is a fail. What makes a remix fabulous:
   foreign hue (green ok / red bad) only if essential, and keep it tiny.
 
 Tools: `v1design screens get <ref> <name>` lifts a donor screen; `v1design compose <ref> --add
-"<Name>"` generates one already in the host's system.
+"<Name>" --yes` generates one already in the host's system.
 
 ## Boundaries
 Never copy private repos, `.env`, credentials, or engine internals into the app. Only edit the
-app the user named. Scaffold writes default to `~/.v1design/workspace/<ref>`; the CLI refuses
-Git-worktree writes unless `--allow-project-write`.
+app the user named. Use Umer for demo data.
+
+Inside a project (`package.json` or `.git`, including child directories),
+`v1design pull <ref>` writes the pack to the detected project root. `--into <dir>`
+chooses another target and selects pack mode even outside a project.
+`--project <project-id>` also selects pack mode and requires ownership of the run.
+Use `--dry-run` to preview pack writes; omit it to write. Pack writes do not need
+`--allow-project-write`. Re-pulls replace pack files; agent rules merge only within
+managed markers, preserving text outside them. Preview before updating an app,
+then ask the agent to follow `WORK-ORDER.md` after writing.
+
+Outside a project, plain reference pull downloads a ZIP. `--zip` or `--out <file>`
+also selects ZIP mode for reference pulls. ZIP mode has no dry-run; output defaults
+to `~/.v1design/workspace/<ref>/handoff.zip`, and Git-worktree writes require
+`--allow-project-write`. Scaffold output defaults to the same workspace and needs
+that flag for Git-worktree writes. Never infer permission to edit an unrelated repo.
