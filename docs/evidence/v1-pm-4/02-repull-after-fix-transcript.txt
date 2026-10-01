@@ -1,0 +1,37 @@
+# v1-pm-4 re-pull AFTER the CLI fix (fm/v1-pm-4) — LOCALHOST engine, same repo, after the agent built two routes
+
+$ git log --oneline
+2eb2675 Build Overview + Analytics routes from the v1design pack (tokens -> CSS vars, shared NavRail)
+e4dec0d v1design pull pulse-5f8a2c10
+5695c34 scaffold: fresh Vite React TS app
+[exit 0]
+
+$ v1design pull pulse-5f8a2c10 --dry-run
+Would write 0 of 18 files into <scratch>/umer-metrics (dry run — nothing written):
+  unchanged DESIGN.md (3548 bytes)
+  unchanged design-tokens.json (7544 bytes)
+  unchanged PROMPT.md (21512 bytes)
+  unchanged WORK-ORDER.md (1710 bytes)
+  unchanged work-order.json (794 bytes)
+  unchanged CLAUDE.md (971 bytes)
+  unchanged AGENTS.md (967 bytes)
+  unchanged .cursor/rules/v1design.mdc (952 bytes)
+  unchanged prompts/Overview.md (4009 bytes)
+  unchanged prompts/Analytics.md (2709 bytes)
+  unchanged prompts/Customers.md (2765 bytes)
+  unchanged prompts/Settings.md (2694 bytes)
+  unchanged screens/Overview.tsx (23076 bytes)
+  unchanged screens/Analytics.tsx (19263 bytes)
+  unchanged screens/Customers.tsx (19114 bytes)
+  unchanged screens/Settings.tsx (21468 bytes)
+  unchanged screens/Revenue.tsx (20895 bytes)
+  unchanged .v1design/pull.json (207 bytes)
+[exit 0]
+
+$ v1design pull pulse-5f8a2c10
+Already up to date: all 18 files in <scratch>/umer-metrics match pulse-5f8a2c10 — nothing written.
+[exit 0]
+
+$ git status --short
+[exit 0]
+

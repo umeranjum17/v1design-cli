@@ -133,7 +133,11 @@ test("second identical pull produces no changes", async () => {
   assert.equal(second.status, "done");
   assert.ok(second.plan.length > 0, "plan still lists files");
   assert.ok(second.plan.every((p) => p.mode === "unchanged"), `second pull changes nothing, got: ${second.plan.filter((p) => p.mode !== "unchanged").map((p) => p.rel).join(",")}`);
-  assert.match(out(), /Wrote 0 files/);
+  assert.match(out(), /Already up to date: all \d+ files .* match demo-1 — nothing written\./);
+  assert.doesNotMatch(out(), /Wrote 0 files|Next: /);
+  lines.length = 0;
+  await pullIntoCommand("demo-1", { "dry-run": true }, { dir });
+  assert.match(out(), new RegExp(`Would write 0 of ${second.plan.length} files`));
 });
 
 test("pull warns when remote tokens moved since the last pull", async () => {
