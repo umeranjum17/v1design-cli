@@ -135,9 +135,9 @@ export async function hostId(home = homedir()) {
 
 /**
  * The host key for this hostId, sealed via BYOKit (X3). Returns the stored
- * key when present; otherwise mints one from the engine's POST /host/keys
- * with the owner's user credential and seals it. Returns "" when there is
- * no credential or the engine refuses — the host keeps working TTY-only.
+ * key only when bound to the current CLI connection; otherwise mints one from
+ * POST /host/keys with the owner's user credential and seals it. Returns "" when there is
+ * no credential or the engine refuses — Studio relay requests are disabled.
  * The key is never logged.
  */
 export async function ensureHostKey({
@@ -323,9 +323,10 @@ async function submitOutcome(client, job, outcome) {
   return outcome;
 }
 
-/** Claim one job, run it through the kit, submit the result or a typed failure.
+/** Run an already-claimed job through the kit, submit the result or a typed failure.
  * Submits the X1 result shape {text, usage}; resting failures carry the
- * `resting_until:<ms>` marker. */
+ * `resting_until:<ms>` marker. A failed acknowledgment throws with the outcome;
+ * it must not be reported as settled or successfully drained. */
 export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
   const built = buildRunSpec(job, lane);
   if (!built) {
@@ -363,7 +364,8 @@ export const createLoopControl = () => ({ draining: false, restUntil: 0 });
  * The job loop: heartbeat presence + the current SignInView, poll, claim one
  * job, run it, submit. While backing off (restUntil) the host still
  * heartbeats but claims nothing. SIGINT drains: the loop stops polling and
- * returns only after the in-flight job is submitted.
+ * returns only after the in-flight outcome is acknowledged; acknowledgment
+ * failure throws instead. Connection changes block relay calls and new kit runs.
  */
 export async function serveJobs({
   kit,

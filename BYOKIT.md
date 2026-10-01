@@ -4,8 +4,11 @@ Everything in this repo must go through BYOKit: no new direct third-party or
 foundational integrations (AI/vendor SDKs, auth, pairing, payments, databases,
 queues, storage, email, analytics, MCP transport, package acquisition). If
 BYOKit lacks something, the capability is fixed and added in BYOKit — this
-repo never goes raw. Until the kits below are published, the listed bypasses
-stay exactly as they are (live features, kept working); the kit-side connect
+repo never goes raw. The listed bypasses remain migration debt until their
+replacement kit contracts are published and adopted (keep live features working).
+The Studio host already uses the pinned `@byokit/openclaw` and `@byokit/secrets`
+dependencies for subscription generation, provider sign-in and sealed host keys.
+This is separate from CLI connection migration: the kit-side connect
 flow (link/relay/reach + openclaw pairing and sign-in state) is not live here
 yet, so no BYOKit connect command is documented — never invent one.
 

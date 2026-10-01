@@ -68,7 +68,7 @@ export function hostConnectionBinding(connection: Credentials | null, hostId: st
   return JSON.stringify([baseUrl, connection.key, connection.authorizedAt ?? null, hostId]);
 }
 
-/** Null when the engine is unreachable or S2 is not deployed: the host works TTY-only. */
+/** Relay requests fail closed when the captured CLI connection changes or disappears. */
 export function createHostClient(o: HostClientOptions = {}) {
   const state = { key: o.hostKey ?? "", id: o.hostId ?? "", timeoutMs: o.timeoutMs ?? 8000 };
   const readConnection = o.readConnection ?? readCredentials;
@@ -177,7 +177,7 @@ export function createHostClient(o: HostClientOptions = {}) {
 /**
  * Mint a host-scoped key for one hostId (X3; raw shown once). Auth is the
  * owner's full-scope user key, never the host key. Null when the engine is
- * unreachable or refuses: the host keeps working TTY-only.
+ * unreachable or refuses: no Studio relay requests can run without the key.
  */
 export async function mintHostKey(
   hostId: string,

@@ -57,14 +57,10 @@ This CLI is a **library + a recipe RUNNER**. Three distinct things:
        above-the-fold hero. Generous whitespace, premium, fully procedural, real copy (no lorem).
      - **LIGHT palette by default** (dark only if the chosen movement truly demands it; ≤1 dark per set).
    The CLI ships no doctrine. Keep the lanes separate — never blend A into B.
-3. **Studio on your computer** — `v1design host` runs Studio jobs using the user's
-   ChatGPT plan through BYOKit; `v1design host --lane claude` uses Claude Pro/Max.
-   Keep the host running and the computer online. Use `v1design host help` for setup
-   and requirements; `v1design host [--lane claude] status` checks the selected plan.
-   Claude uses the user's Claude Code login in BYOKit's isolated home (subscription
-   billing, no API key); follow startup instructions and respect Anthropic's terms.
+3. **Studio on your computer** — follow the authoritative
+   [host setup and account guidance in README.md](https://github.com/umeranjum17/v1design-cli#studio-on-your-computer)
+   and the installed CLI's `v1design host help` before starting a host.
    Never sign out an existing account without the user's request.
-   Pull a finished run with `v1design pull --project <project-id>` (owner-only).
    Generation commands (`v1design studio "<brief>" --yes`, `v1design compose <ref>
    --add "<Name>" --yes`) require an explicit generation request. Keep the `--yes`
    safeguard; MCP generation tools require `confirm:true`.
@@ -223,17 +219,6 @@ Tools: `v1design screens get <ref> <name>` lifts a donor screen; `v1design compo
 Never copy private repos, `.env`, credentials, or engine internals into the app. Only edit the
 app the user named. Use Umer for demo data.
 
-Inside a project (`package.json` or `.git`, including child directories),
-`v1design pull <ref>` writes the pack to the detected project root. `--into <dir>`
-chooses another target and selects pack mode even outside a project.
-`--project <project-id>` also selects pack mode and requires ownership of the run.
-Use `--dry-run` to preview pack writes; omit it to write. Pack writes do not need
-`--allow-project-write`. Re-pulls replace pack files; agent rules merge only within
-managed markers, preserving text outside them. Preview before updating an app,
-then ask the agent to follow `WORK-ORDER.md` after writing.
-
-Outside a project, plain reference pull downloads a ZIP. `--zip` or `--out <file>`
-also selects ZIP mode for reference pulls. ZIP mode has no dry-run; output defaults
-to `~/.v1design/workspace/<ref>/handoff.zip`, and Git-worktree writes require
-`--allow-project-write`. Scaffold output defaults to the same workspace and needs
-that flag for Git-worktree writes. Never infer permission to edit an unrelated repo.
+Follow the authoritative [pull modes and write boundaries in README.md](https://github.com/umeranjum17/v1design-cli#pull-into-your-app).
+Preview pack writes before updating an app, then follow `WORK-ORDER.md` after
+writing. Never infer permission to edit an unrelated repo.

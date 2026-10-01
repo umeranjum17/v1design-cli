@@ -91,14 +91,25 @@ v1design host --lane claude         # Claude Pro/Max plan
 v1design host status                # selected plan's sign-in state
 v1design host --lane claude status
 v1design host help                  # setup and requirements
+v1design host --fake                # offline contract fixture; no provider or relay
 ```
 
-Keep the host command running while Studio works. Ctrl+C finishes the current job
-before exiting. `v1design host [--lane claude] signout` signs out only the selected
+Run `v1design connect` for the v-1.design account whose Studio jobs you want to run.
+The host key is bound to that CLI connection. Logging out or reconnecting disables
+the running host's relay requests, including sign-in codes, and prevents another
+generation from starting; restart the host after connecting to the intended account.
+
+Keep the host command running while Studio works. Ctrl+C waits for the current
+job's result or failure to be acknowledged before exiting. A failed acknowledgment
+stops the host with an error; it does not retry or persist the outcome for recovery.
+Successful jobs submit the kit's complete generated text and any usage data,
+including results longer than the engine's terminal preview.
+`v1design host [--lane claude] signout` signs out only the selected
 plan on this computer. Claude uses your own Claude Code login in BYOKit's isolated
 home; follow the instructions printed at startup. Subscription billing applies,
 with no API key for this route, and [Anthropic's terms apply](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use).
-The host supports macOS/Linux and needs Node `>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0`.
+The host supports macOS/Linux; `v1design host help` reports the Node version range
+required by its pinned BYOKit engine.
 
 Pull a finished Studio run you own with `v1design pull --project <project-id>`.
 
@@ -133,6 +144,13 @@ A pack includes design guidance, tokens, screen code, prompts and `WORK-ORDER.md
 Ask your agent to follow that work order route by route. Re-pulling replaces pack
 files; agent rules merge only between the managed markers, preserving your text
 outside them. Inspect the preview before updating an existing app.
+Use `--agents claude,codex,cursor` to select which agent rules are written
+(all three by default). Identical re-pulls skip unchanged files. A token-hash
+change warns only when re-pulling the same source and design, not when switching
+designs. Pack paths that resolve outside the target, including symlinks, are refused.
+
+If a reference pack returns 404, pull searches the Library using the input as a
+brief, prints matches to choose from, and exits nonzero without writing a pack.
 
 Outside a project, plain `pull <ref>` downloads a ZIP. `--zip` or `--out <file>`
 also selects ZIP mode for reference pulls; `--dry-run` does not apply to ZIP
