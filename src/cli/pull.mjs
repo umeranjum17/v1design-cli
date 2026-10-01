@@ -267,7 +267,8 @@ export async function pullIntoCommand(refInput, flags = {}, opts = {}) {
   plan.push(planFileWrite(dir, PULL_STATE_REL, `${JSON.stringify(state, null, 2)}\n`));
 
   if (flags["dry-run"]) {
-    console.log(`Would write ${plan.length} files into ${dir} (dry run — nothing written):`);
+    const changes = plan.filter((p) => p.mode !== "unchanged").length;
+    console.log(`Would write ${changes} of ${plan.length} files into ${dir} (dry run — nothing written):`);
     for (const p of plan) console.log(`  ${p.mode} ${p.rel} (${Buffer.byteLength(p.content, "utf8")} bytes)`);
     return { status: "dry-run", dir, plan };
   }
@@ -277,6 +278,10 @@ export async function pullIntoCommand(refInput, flags = {}, opts = {}) {
     await writeFile(p.abs, p.content);
   }
   const wrote = plan.filter((p) => p.mode !== "unchanged");
+  if (!wrote.length) {
+    console.log(`Already up to date: all ${plan.length} files in ${dir} match ${source.ref} — nothing written.`);
+    return { status: "done", dir, plan };
+  }
   console.log(`Wrote ${wrote.length} files into ${dir}:`);
   for (const p of wrote) console.log(`  ${p.mode} ${p.rel}`);
   if (plan.some((p) => p.rel === "WORK-ORDER.md")) {
