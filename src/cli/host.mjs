@@ -19,7 +19,7 @@ import { createInterface } from "node:readline";
 import { OpenClawKit, words } from "@byokit/openclaw";
 import { createHostClient, mintHostKey } from "./host-relay.ts";
 import { readHostKey, writeHostKey } from "./host-secrets.mjs";
-import { readCredentials } from "./auth.ts";
+import { readCredentials, DEFAULT_API_URL } from "./auth.ts";
 
 export const HOST_MEMBER = "me";
 export const HOST_AUTH_CHOICE = "openai-device-code";
@@ -140,20 +140,24 @@ export async function hostId(home = homedir()) {
  * no credential or the engine refuses — the host keeps working TTY-only.
  * The key is never logged.
  */
-export async function ensureHostKey({ id = null } = {}) {
-  const hostIdValue = id ?? (await hostId());
-  const existing = await readHostKey();
+export async function ensureHostKey({
+  id = null,
+  home = homedir(),
+  sealOptions = {},
+  readConnection = readCredentials,
+  mintKey = mintHostKey,
+} = {}) {
+  const connection = await readConnection();
+  if (!connection?.key) return "";
+  const hostIdValue = id ?? (await hostId(home));
+  const baseUrl = (process.env.V1_DESIGN_API_URL || connection.apiUrl || DEFAULT_API_URL).replace(/\/$/, "");
+  const binding = JSON.stringify([baseUrl, connection.key, connection.authorizedAt ?? null, hostIdValue]);
+  const storage = { ...sealOptions, home, binding };
+  const existing = await readHostKey(storage);
   if (existing) return existing;
-  let userKey = "";
-  try {
-    userKey = (await readCredentials())?.key ?? "";
-  } catch {
-    userKey = "";
-  }
-  if (!userKey) return "";
-  const raw = await mintHostKey(hostIdValue, userKey);
+  const raw = await mintKey(hostIdValue, connection.key, { baseUrl });
   if (!raw) return "";
-  await writeHostKey(raw);
+  await writeHostKey(raw, storage);
   return raw;
 }
 
@@ -308,6 +312,17 @@ export function describeRunEnd(end) {
   return { error: `${kind}: ${message}` };
 }
 
+async function submitOutcome(client, job, outcome) {
+  const body = outcome.result === undefined ? { error: outcome.error } : { result: outcome.result };
+  if (!(await client.submit(job.id, body))) {
+    throw Object.assign(new Error(`Host result acknowledgment failed for job ${job.id}`), {
+      jobId: job.id,
+      outcome,
+    });
+  }
+  return outcome;
+}
+
 /** Claim one job, run it through the kit, submit the result or a typed failure.
  * Submits the X1 result shape {text, usage}; resting failures carry the
  * `resting_until:<ms>` marker. */
@@ -315,16 +330,14 @@ export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
   const built = buildRunSpec(job, lane);
   if (!built) {
     const error = "invalid-input: job carries no message";
-    await client.submit(job.id, { error });
-    return { error };
+    return submitOutcome(client, job, { error });
   }
   let end;
   try {
     end = await kit.run(built.spec);
   } catch (e) {
     const error = `failed: ${e?.message || String(e)}`;
-    await client.submit(job.id, { error });
-    return { error };
+    return submitOutcome(client, job, { error });
   }
   if (end.ok) {
     const result = { text: end.text, ...(end.usage === undefined ? {} : { usage: end.usage }) };
@@ -333,16 +346,13 @@ export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
         JSON.parse(result.text);
       } catch {
         const error = "invalid-result: model did not return JSON";
-        await client.submit(job.id, { error });
-        return { error };
+        return submitOutcome(client, job, { error });
       }
     }
-    await client.submit(job.id, { result });
-    return { result };
+    return submitOutcome(client, job, { result });
   }
   const { error, restUntil } = describeRunEnd(end);
-  await client.submit(job.id, { error });
-  return { error, restUntil };
+  return submitOutcome(client, job, { error, restUntil });
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -580,7 +590,7 @@ export async function hostFakeCheck(lane = "chatgpt") {
       return { ok: true, text: fixture.result.text, usage: fixture.result.usage };
     },
   };
-  const client = { submit: async (id, body) => void submitted.push([id, body]) };
+  const client = { submit: async (id, body) => { submitted.push([id, body]); return true; } };
   const job = { id: "fake-1", input: fixture.job };
   await runJobAndSubmit({ kit, client, job, lane });
   if (seen.length !== 1) fail("kit.run was not called exactly once");

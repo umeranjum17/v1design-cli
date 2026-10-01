@@ -312,7 +312,7 @@ test("job loop: schema jobs validate JSON; the kit's failure kinds stay typed", 
   assert.match(built.spec.system, /Respond with JSON only/);
 
   const submitted = [];
-  const client = { submit: async (id, body) => void submitted.push([id, body]) };
+  const client = { submit: async (id, body) => { submitted.push([id, body]); return true; } };
   await runJobAndSubmit({ kit: stubKit({ run: async () => ({ ok: true, text: '{"a":1}' }) }), client, job });
   assert.deepEqual(submitted, [["job-9", { result: { text: '{"a":1}' } }]]); // X1: text stays raw, engine parses
   await runJobAndSubmit({ kit: stubKit({ run: async () => ({ ok: true, text: "not json" }) }), client, job });
@@ -356,7 +356,7 @@ test("host: a real kit run on the fake gateway submits its text", async () => {
     const submitted = [];
     const outcome = await runJobAndSubmit({
       kit,
-      client: { submit: async (id, body) => void submitted.push([id, body]) },
+      client: { submit: async (id, body) => { submitted.push([id, body]); return true; } },
       job: { id: "job-k", input: { message: "draft a hero" } },
     });
     assert.match(outcome.result.text, /draft a hero/);
@@ -474,4 +474,42 @@ test("claude lane: the job loop heartbeats the lane via and runs claude-plan job
   assert.ok(engine.heartbeats.some((h) => h.signIn?.via === "browser"));
   assert.ok(engine.heartbeats.some((h) => h.lane === "claude-plan" && h.signedIn === true)); // X3
   assert.deepEqual(engine.jobs[0].result, { text: "claude did it" }); // X1: {text, usage}
+});
+
+test("failed result acknowledgments reject every outcome and prevent a successful drain", async () => {
+  const complete = { text: "x".repeat(25452), usage: { totalTokens: 42 } };
+  const scenarios = [
+    { input: {}, run: async () => { throw new Error("must not run"); } },
+    { input: { message: "go" }, run: async () => { throw new Error("run failed"); } },
+    { input: { message: "go", json: true }, run: async () => ({ ok: true, text: "invalid" }) },
+    { input: { message: "go" }, run: async () => ({ ok: true, ...complete }) },
+    { input: { message: "go" }, run: async () => ({ ok: false, kind: "resting", until: 123 }) },
+  ];
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const timeout of [false, true]) {
+      globalThis.fetch = async () => {
+        if (timeout) throw new DOMException("timed out", "TimeoutError");
+        return new Response("failed", { status: 500 });
+      };
+      const relay = createHostClient({ baseUrl: "https://synthetic.invalid", hostKey: "synthetic", hostId: "host" });
+      for (const [index, scenario] of scenarios.entries()) {
+        const job = { id: `failed-${index}`, input: scenario.input };
+        const ctl = createLoopControl();
+        const events = [];
+        const client = {
+          heartbeat: async () => null, poll: async () => ({ jobs: [job] }), claim: async () => job,
+          submit: async (...args) => { ctl.draining = true; return relay.submit(...args); },
+        };
+        await assert.rejects(serveJobs({ kit: { run: scenario.run }, client, ctl, onEvent: (e) => events.push(e) }), (error) => {
+          assert.match(error.message, /acknowledgment failed/);
+          assert.equal(error.jobId, job.id);
+          if (index === 3) assert.deepEqual(error.outcome.result, complete);
+          else assert.equal(typeof error.outcome.error, "string");
+          return true;
+        });
+        assert.deepEqual(events.map((e) => e.type), ["claimed"]);
+      }
+    }
+  } finally { globalThis.fetch = originalFetch; }
 });

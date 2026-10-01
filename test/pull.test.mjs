@@ -293,3 +293,39 @@ test("merge helpers: extract replaces in place, appends when unmarked", () => {
   assert.deepEqual(planned.map((p) => p.rel).sort(), ["CLAUDE.md", "DESIGN.md", "PROMPT.md", "WORK-ORDER.md", "design-tokens.json",
     "work-order.json", join("prompts", "Home.md"), join("screens", "Home.tsx")].sort());
 });
+
+test("pull rejects symlink escapes for generated files, agent rules, and pull state", async () => {
+  const external = await mkproject({ "rules.md": "external rules", "pull.json": "{}" });
+  for (const rel of ["CLAUDE.md", "AGENTS.md", ".cursor/rules", "screens", "prompts", ".v1design", "design-tokens.json"]) {
+    const dir = await mkproject();
+    await fs.mkdir(join(dir, rel, ".."), { recursive: true });
+    const target = rel.endsWith(".md") || rel.endsWith(".json") ? join(external, "rules.md") : external;
+    await fs.symlink(target, join(dir, rel));
+    await assert.rejects(pullIntoCommand("demo-1", {}, { dir, fetchPack: async () => manifest("# v1 rules") }), /Refusing to write outside/);
+    assert.equal(await fs.readFile(join(external, "rules.md"), "utf8"), "external rules");
+    assert.deepEqual((await fs.readdir(external)).sort(), ["package.json", "pull.json", "rules.md"]);
+  }
+  const dir = await mkproject({ "local.md": "member rules" });
+  await fs.symlink(join(dir, "local.md"), join(dir, "CLAUDE.md"));
+  await pullIntoCommand("demo-1", {}, { dir, fetchPack: async () => manifest("# v1 rules") });
+  assert.match(await fs.readFile(join(dir, "local.md"), "utf8"), /member rules/);
+  assert.match(await fs.readFile(join(dir, "local.md"), "utf8"), /v1 rules/);
+});
+
+test("token staleness follows source identity for library and Studio pulls", async () => {
+  const dir = await mkproject();
+  const pull = async (ref, project, hash, designId) => {
+    lines.length = 0;
+    await pullIntoCommand(ref, project ? { project: ref } : {}, {
+      dir, fetchPack: async () => manifest("rules", { tokensHash: hash, designId }),
+    });
+    return out();
+  };
+  await pull("a", false, "1", "a");
+  assert.doesNotMatch(await pull("b", false, "2", "b"), /stale tokens/);
+  assert.match(await pull("b", false, "3", "b"), /stale tokens/);
+  assert.doesNotMatch(await pull("b", true, "4", "b"), /stale tokens/);
+  assert.match(await pull("b", true, "5", "b"), /stale tokens/);
+  assert.doesNotMatch(await pull("c", true, "6", "b"), /stale tokens/);
+  assert.doesNotMatch(await pull("c", true, "7", "c"), /stale tokens/);
+});

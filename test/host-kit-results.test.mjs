@@ -33,7 +33,7 @@ async function replay({ terminalReply, payloads = [{ text: complete }], json = t
   const schema = { type: "object", required: ["appName", "content"], properties: { appName: { type: "string" }, content: { type: "string" } } };
   const outcome = await runJobAndSubmit({
     kit: { run: async (spec) => { end = await runs.run(spec, (e) => callbacks.push(e)); return end; } },
-    client: { submit: async (id, body) => { submissions.push([id, body]); } },
+    client: { submit: async (id, body) => { submissions.push([id, body]); return true; } },
     job: { id: "offline", input: { message: "Build for Umer", model: "openai/gpt-test", role: "planner", system: "Return the complete plan", json, ...(json ? { schema } : {}) } },
   });
   if (json) assert.ok(request.extraSystemPrompt.includes(JSON.stringify(schema)));

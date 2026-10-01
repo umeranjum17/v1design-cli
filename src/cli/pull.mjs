@@ -6,8 +6,8 @@
 // .cursor/rules/v1design.mdc ONLY between the managed markers, so re-pulls
 // never touch the member's own text.
 import { mkdir, writeFile } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { apiRequest, expandHome, normalizeRef, searchLibraryRemote } from "./lib/engine.mjs";
 
 /** Managed markers: agent files are upserted ONLY between these lines. */
@@ -138,9 +138,29 @@ export function mergeAgentFile(existing, block) {
   return `${existing.trimEnd()}\n\n${block}\n`;
 }
 
+function resolvedPath(path) {
+  let ancestor = path;
+  const suffix = [];
+  while (true) {
+    try {
+      lstatSync(ancestor);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const parent = dirname(ancestor);
+      if (parent === ancestor) throw error;
+      suffix.unshift(basename(ancestor));
+      ancestor = parent;
+      continue;
+    }
+    return resolve(realpathSync(ancestor), ...suffix);
+  }
+}
+
 function assertInside(dir, rel) {
-  const abs = resolve(dir, rel);
-  if (abs !== dir && !abs.startsWith(dir.endsWith(sep) ? dir : `${dir}${sep}`)) {
+  const root = resolve(dir);
+  const abs = resolve(root, rel);
+  const inside = (base, path) => path === base || path.startsWith(base.endsWith(sep) ? base : `${base}${sep}`);
+  if (!inside(root, abs) || !inside(resolvedPath(root), resolvedPath(abs))) {
     throw new Error(`Refusing to write outside ${dir}: ${rel}`);
   }
   return abs;
@@ -156,8 +176,9 @@ export function planFileWrite(dir, rel, content) {
 
 /** Read the last pull record ({ version, tokensHash, ... }) or null. */
 export function readPullState(dir) {
+  const abs = assertInside(dir, PULL_STATE_REL);
   try {
-    return JSON.parse(readFileSync(join(dir, PULL_STATE_REL), "utf8"));
+    return JSON.parse(readFileSync(abs, "utf8"));
   } catch {
     return null;
   }
@@ -252,7 +273,8 @@ export async function pullIntoCommand(refInput, flags = {}, opts = {}) {
 
   // Stale tokens: the remote pack's tokens moved since the last recorded pull.
   const prior = readPullState(dir);
-  if (prior && manifest.tokensHash && prior.tokensHash && prior.tokensHash !== manifest.tokensHash) {
+  if (prior && prior.source === source.kind && prior.ref === source.ref &&
+      prior.designId === (manifest.designId ?? null) && manifest.tokensHash && prior.tokensHash && prior.tokensHash !== manifest.tokensHash) {
     console.log(`Warning: remote design tokens changed since your last pull (stale tokens) — this pull overwrites design-tokens.json.`);
   }
 
@@ -274,8 +296,9 @@ export async function pullIntoCommand(refInput, flags = {}, opts = {}) {
   }
   for (const p of plan) {
     if (p.mode === "unchanged") continue;
-    await mkdir(dirname(p.abs), { recursive: true });
-    await writeFile(p.abs, p.content);
+    const abs = assertInside(dir, p.rel);
+    await mkdir(dirname(abs), { recursive: true });
+    await writeFile(assertInside(dir, p.rel), p.content);
   }
   const wrote = plan.filter((p) => p.mode !== "unchanged");
   if (!wrote.length) {
