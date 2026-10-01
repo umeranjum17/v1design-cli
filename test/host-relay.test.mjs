@@ -249,14 +249,15 @@ test("job loop: claim → kit run with the job model → submit, then drain", as
   assert.equal(seen[0].model, "openai/gpt-x"); // bare names mean the member's openai provider
   assert.ok(seen[0].sessionKey.startsWith(`agent:${HOST_MEMBER}:host-job-`));
   assert.equal(engine.jobs[0].status, "done");
-  assert.equal(engine.jobs[0].result, '{"screens":1}');
+  assert.deepEqual(engine.jobs[0].result, { text: '{"screens":1}' }); // X1: {text, usage}
   assert.ok(engine.heartbeats.length >= 1); // presence kept while serving
+  assert.ok(engine.heartbeats.every((h) => h.lane === "chatgpt" && h.signedIn === true)); // X3
 });
 
 test("job loop: resting/plan-exhausted runs become a typed backoff, never a retry storm", async () => {
   const until = Date.now() + 60_000;
   assert.deepEqual(describeRunEnd({ ok: false, kind: "resting", until, message: "plan resting" }), {
-    error: `resting until ${new Date(until).toISOString()}: plan resting`,
+    error: `resting_until:${until}`,
     restUntil: until,
   });
   assert.match(describeRunEnd({ ok: false, kind: "plan", message: "empty" }).error, /^resting: /);
@@ -282,7 +283,7 @@ test("job loop: resting/plan-exhausted runs become a typed backoff, never a retr
   await done;
   assert.equal(claims, 1);
   assert.equal(ctl.restUntil, until);
-  assert.match(engine.jobs[0].error, /^resting until .*plan resting/);
+  assert.equal(engine.jobs[0].error, `resting_until:${until}`);
   assert.equal(engine.jobs[1].status, "queued"); // untouched during backoff
 });
 
@@ -301,10 +302,10 @@ test("job loop: drain finishes the in-flight job before stopping", async () => {
   release();
   await done;
   assert.equal(engine.jobs[0].status, "done");
-  assert.equal(engine.jobs[0].result, "late");
+  assert.deepEqual(engine.jobs[0].result, { text: "late" });
 });
 
-test("job loop: schema jobs submit parsed JSON; the kit's failure kinds stay typed", async () => {
+test("job loop: schema jobs validate JSON; the kit's failure kinds stay typed", async () => {
   const job = { id: "job-9", input: { message: "x", schema: { type: "object" } } };
   const built = buildRunSpec(job);
   assert.equal(built.wantJson, true);
@@ -313,7 +314,7 @@ test("job loop: schema jobs submit parsed JSON; the kit's failure kinds stay typ
   const submitted = [];
   const client = { submit: async (id, body) => void submitted.push([id, body]) };
   await runJobAndSubmit({ kit: stubKit({ run: async () => ({ ok: true, text: '{"a":1}' }) }), client, job });
-  assert.deepEqual(submitted, [["job-9", { result: { a: 1 } }]]);
+  assert.deepEqual(submitted, [["job-9", { result: { text: '{"a":1}' } }]]); // X1: text stays raw, engine parses
   await runJobAndSubmit({ kit: stubKit({ run: async () => ({ ok: true, text: "not json" }) }), client, job });
   assert.match(submitted[1][1].error, /^invalid-result/);
   await runJobAndSubmit({
@@ -358,7 +359,7 @@ test("host: a real kit run on the fake gateway submits its text", async () => {
       client: { submit: async (id, body) => void submitted.push([id, body]) },
       job: { id: "job-k", input: { message: "draft a hero" } },
     });
-    assert.match(outcome.result, /draft a hero/);
+    assert.match(outcome.result.text, /draft a hero/);
     assert.equal(submitted.length, 1);
   } finally {
     await kit.stop();
@@ -471,5 +472,6 @@ test("claude lane: the job loop heartbeats the lane via and runs claude-plan job
   await done;
   assert.equal(seen[0].model, "claude-cli/opus");
   assert.ok(engine.heartbeats.some((h) => h.signIn?.via === "browser"));
-  assert.equal(engine.jobs[0].result, "claude did it");
+  assert.ok(engine.heartbeats.some((h) => h.lane === "claude-plan" && h.signedIn === true)); // X3
+  assert.deepEqual(engine.jobs[0].result, { text: "claude did it" }); // X1: {text, usage}
 });
