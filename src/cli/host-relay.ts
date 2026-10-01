@@ -11,7 +11,7 @@
 // code (S2 enforces; this client just sends). All posts are best-effort from
 // the TTY's point of view — failures surface to the caller, never throw
 // uncaught into the sign-in callback.
-import { readCredentials, DEFAULT_API_URL } from "./auth.ts";
+import { readCredentials, DEFAULT_API_URL, type Credentials } from "./auth.ts";
 
 export type HostJob = {
   id: string;
@@ -48,6 +48,8 @@ export type HostClientOptions = {
   hostKey?: string;
   hostId?: string;
   timeoutMs?: number;
+  connection?: Credentials | null;
+  readConnection?: typeof readCredentials;
 };
 
 async function defaultBaseUrl(): Promise<string> {
@@ -60,19 +62,36 @@ async function defaultBaseUrl(): Promise<string> {
   }
 }
 
-const req = (client: { key: string; timeoutMs: number }, path: string, init?: RequestInit) =>
-  fetch(path, {
-    ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-      ...(client.key ? { authorization: `Bearer ${client.key}` } : {}),
-    },
-    signal: init?.signal ?? AbortSignal.timeout(client.timeoutMs),
-  });
+export function hostConnectionBinding(connection: Credentials | null, hostId: string): string | null {
+  if (!connection?.key) return null;
+  const baseUrl = (process.env.V1_DESIGN_API_URL || connection.apiUrl || DEFAULT_API_URL).replace(/\/$/, "");
+  return JSON.stringify([baseUrl, connection.key, connection.authorizedAt ?? null, hostId]);
+}
 
-/** Null when the engine is unreachable or S2 is not deployed: the host works TTY-only. */
+/** Relay requests fail closed when the captured CLI connection changes or disappears. */
 export function createHostClient(o: HostClientOptions = {}) {
   const state = { key: o.hostKey ?? "", id: o.hostId ?? "", timeoutMs: o.timeoutMs ?? 8000 };
+  const readConnection = o.readConnection ?? readCredentials;
+  const expected = Promise.resolve(o.connection === undefined ? readConnection() : o.connection)
+    .then((connection) => hostConnectionBinding(connection, state.id));
+  const assertCurrentConnection = async () => {
+    const binding = await expected;
+    if (!state.key || !binding || hostConnectionBinding(await readConnection(), state.id) !== binding) {
+      state.key = "";
+      throw new Error("CLI connection changed or absent; restart v1design host");
+    }
+  };
+  const req = async (path: string, init?: RequestInit) => {
+    await assertCurrentConnection();
+    return fetch(path, {
+      ...init,
+      headers: {
+        ...(init?.headers ?? {}),
+        ...(state.key ? { authorization: `Bearer ${state.key}` } : {}),
+      },
+      signal: init?.signal ?? AbortSignal.timeout(state.timeoutMs),
+    });
+  };
   let base: string | null = null;
   const url = async (path: string) => {
     base ??= (o.baseUrl ?? (await defaultBaseUrl())).replace(/\/$/, "");
@@ -80,17 +99,11 @@ export function createHostClient(o: HostClientOptions = {}) {
   };
 
   return {
-    setHostKey(key: string) {
-      state.key = key;
-    },
-    setHostId(id: string) {
-      state.id = id;
-    },
-
+    assertCurrentConnection,
     /** Host poll: queued jobs for this uid plus any web start-request flag. */
     async poll(hostId = state.id): Promise<HostPoll | null> {
       try {
-        const res = await req(state, await url(`/host/jobs?hostId=${encodeURIComponent(hostId)}`));
+        const res = await req(await url(`/host/jobs?hostId=${encodeURIComponent(hostId)}`));
         if (!res.ok) return null;
         const data = (await res.json()) as Partial<HostPoll>;
         return { jobs: Array.isArray(data.jobs) ? data.jobs : [], startRequested: data.startRequested === true };
@@ -102,7 +115,7 @@ export function createHostClient(o: HostClientOptions = {}) {
     /** Claim one queued job for this host. Null when missing/foreign or not claimable. */
     async claim(id: string, hostId = state.id): Promise<HostJob | null> {
       try {
-        const res = await req(state, await url(`/host/jobs/${encodeURIComponent(id)}/claim`), {
+        const res = await req(await url(`/host/jobs/${encodeURIComponent(id)}/claim`), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ hostId }),
@@ -117,7 +130,7 @@ export function createHostClient(o: HostClientOptions = {}) {
     /** Submit the result (claiming host only). True when the engine accepted it. */
     async submit(id: string, body: { result: unknown } | { error: string }, hostId = state.id): Promise<boolean> {
       try {
-        const res = await req(state, await url(`/host/jobs/${encodeURIComponent(id)}/result`), {
+        const res = await req(await url(`/host/jobs/${encodeURIComponent(id)}/result`), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ hostId, ...body }),
@@ -140,7 +153,7 @@ export function createHostClient(o: HostClientOptions = {}) {
       hostId = state.id,
     ): Promise<HostHeartbeat | null> {
       try {
-        const res = await req(state, await url("/host/heartbeat"), {
+        const res = await req(await url("/host/heartbeat"), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -164,7 +177,7 @@ export function createHostClient(o: HostClientOptions = {}) {
 /**
  * Mint a host-scoped key for one hostId (X3; raw shown once). Auth is the
  * owner's full-scope user key, never the host key. Null when the engine is
- * unreachable or refuses: the host keeps working TTY-only.
+ * unreachable or refuses: no Studio relay requests can run without the key.
  */
 export async function mintHostKey(
   hostId: string,

@@ -25,7 +25,7 @@ const capturingClient = () => {
   const submitted = [];
   return {
     submitted,
-    submit: async (id, body) => void submitted.push([id, body]),
+    submit: async (id, body) => { submitted.push([id, body]); return true; },
   };
 };
 

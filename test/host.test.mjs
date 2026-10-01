@@ -69,7 +69,7 @@ test("host: the kit's typed cancel/expiry sentences surface as-is", async () => 
 });
 
 test("host: the S2 client is offline-tolerant when the engine is unreachable", async () => {
-  const client = createHostClient({ baseUrl: "http://127.0.0.1:9", hostKey: "k", hostId: "h", timeoutMs: 500 });
+  const client = createHostClient({ baseUrl: "http://127.0.0.1:9", hostKey: "k", hostId: "h", timeoutMs: 500, readConnection: async () => ({ key: "synthetic" }) });
   assert.equal(await client.poll(), null);
   assert.equal(await client.heartbeat({ state: "signed-out" }), null);
   assert.equal(await client.claim("nope"), null);

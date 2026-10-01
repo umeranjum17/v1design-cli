@@ -116,7 +116,9 @@ function startFakeEngine() {
 }
 
 let engine = null;
-const clientFor = () => createHostClient({ baseUrl: engine.url, hostKey: KEY, hostId: HOST });
+const connectionA = { key: "synthetic-a", authorizedAt: 1 };
+const readConnectionA = async () => connectionA;
+const clientFor = () => createHostClient({ baseUrl: engine.url, hostKey: KEY, hostId: HOST, readConnection: readConnectionA });
 
 beforeEach(async () => {
   engine = await startFakeEngine();
@@ -166,7 +168,7 @@ test("host client: heartbeat carries presence + the SignInView and takes the sta
 });
 
 test("host client: an unreachable engine reads as null, never throws", async () => {
-  const client = createHostClient({ baseUrl: "http://127.0.0.1:9", hostKey: KEY, hostId: HOST, timeoutMs: 500 });
+  const client = createHostClient({ baseUrl: "http://127.0.0.1:9", hostKey: KEY, hostId: HOST, timeoutMs: 500, readConnection: readConnectionA });
   assert.equal(await client.poll(), null);
   assert.equal(await client.heartbeat({ state: "signed-out" }), null);
   assert.equal(await client.claim("nope"), null);
@@ -312,7 +314,7 @@ test("job loop: schema jobs validate JSON; the kit's failure kinds stay typed", 
   assert.match(built.spec.system, /Respond with JSON only/);
 
   const submitted = [];
-  const client = { submit: async (id, body) => void submitted.push([id, body]) };
+  const client = { submit: async (id, body) => { submitted.push([id, body]); return true; } };
   await runJobAndSubmit({ kit: stubKit({ run: async () => ({ ok: true, text: '{"a":1}' }) }), client, job });
   assert.deepEqual(submitted, [["job-9", { result: { text: '{"a":1}' } }]]); // X1: text stays raw, engine parses
   await runJobAndSubmit({ kit: stubKit({ run: async () => ({ ok: true, text: "not json" }) }), client, job });
@@ -356,7 +358,7 @@ test("host: a real kit run on the fake gateway submits its text", async () => {
     const submitted = [];
     const outcome = await runJobAndSubmit({
       kit,
-      client: { submit: async (id, body) => void submitted.push([id, body]) },
+      client: { submit: async (id, body) => { submitted.push([id, body]); return true; } },
       job: { id: "job-k", input: { message: "draft a hero" } },
     });
     assert.match(outcome.result.text, /draft a hero/);
@@ -474,4 +476,80 @@ test("claude lane: the job loop heartbeats the lane via and runs claude-plan job
   assert.ok(engine.heartbeats.some((h) => h.signIn?.via === "browser"));
   assert.ok(engine.heartbeats.some((h) => h.lane === "claude-plan" && h.signedIn === true)); // X3
   assert.deepEqual(engine.jobs[0].result, { text: "claude did it" }); // X1: {text, usage}
+});
+
+test("failed result acknowledgments reject every outcome and prevent a successful drain", async () => {
+  const complete = { text: "x".repeat(25452), usage: { totalTokens: 42 } };
+  const scenarios = [
+    { input: {}, run: async () => { throw new Error("must not run"); } },
+    { input: { message: "go" }, run: async () => { throw new Error("run failed"); } },
+    { input: { message: "go", json: true }, run: async () => ({ ok: true, text: "invalid" }) },
+    { input: { message: "go" }, run: async () => ({ ok: true, ...complete }) },
+    { input: { message: "go" }, run: async () => ({ ok: false, kind: "resting", until: 123 }) },
+  ];
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const timeout of [false, true]) {
+      globalThis.fetch = async () => {
+        if (timeout) throw new DOMException("timed out", "TimeoutError");
+        return new Response("failed", { status: 500 });
+      };
+      const relay = createHostClient({ baseUrl: "https://synthetic.invalid", hostKey: "synthetic", hostId: "host", readConnection: readConnectionA });
+      for (const [index, scenario] of scenarios.entries()) {
+        const job = { id: `failed-${index}`, input: scenario.input };
+        const ctl = createLoopControl();
+        const events = [];
+        const client = {
+          heartbeat: async () => null, poll: async () => ({ jobs: [job] }), claim: async () => job,
+          submit: async (...args) => { ctl.draining = true; return relay.submit(...args); },
+        };
+        await assert.rejects(serveJobs({ kit: { run: scenario.run }, client, ctl, onEvent: (e) => events.push(e) }), (error) => {
+          assert.match(error.message, /acknowledgment failed/);
+          assert.equal(error.jobId, job.id);
+          if (index === 3) assert.deepEqual(error.outcome.result, complete);
+          else assert.equal(typeof error.outcome.error, "string");
+          return true;
+        });
+        assert.deepEqual(events.map((e) => e.type), ["claimed"]);
+      }
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("running host stops relaying and running jobs after logout or reconnect", async () => {
+  for (const nextConnection of [null, { key: "synthetic-b", authorizedAt: 2 }]) {
+    let current = connectionA;
+    const client = createHostClient({ baseUrl: engine.url, hostKey: KEY, hostId: HOST,
+      readConnection: async () => current });
+    const job = engine.enqueue({ message: "first" });
+    const ctl = createLoopControl();
+    let runs = 0;
+    await serveJobs({ kit: { run: async () => { runs++; return { ok: true, text: "complete" }; } },
+      client, ctl, onEvent: (event) => { if (event.type === "settled") ctl.draining = true; } });
+    assert.equal(runs, 1);
+    assert.equal(job.status, "done");
+    const queued = engine.enqueue({ message: "next" });
+    current = nextConnection;
+    const requests = engine.seenAuth.length;
+    assert.equal(await client.poll(), null);
+    assert.equal(await client.claim(queued.id), null);
+    assert.equal(await client.submit(job.id, { result: { text: "complete" } }), false);
+    assert.equal(await client.heartbeat({ state: "code", code: "synthetic-code", url: "https://synthetic.invalid" }), null);
+    assert.equal(engine.seenAuth.length, requests);
+    assert.equal(queued.status, "queued");
+    await assert.rejects(runJobAndSubmit({ kit: { run: async () => { runs++; } }, client, job: queued }), /connection changed or absent/);
+    assert.equal(runs, 1);
+    queued.status = "cancelled";
+  }
+  let current = connectionA;
+  const client = createHostClient({ baseUrl: engine.url, hostKey: KEY, hostId: HOST,
+    readConnection: async () => current });
+  const queued = engine.enqueue({ message: "switch after claim" });
+  const ctl = createLoopControl();
+  let runs = 0;
+  await assert.rejects(serveJobs({ kit: { run: async () => { runs++; } }, client, ctl,
+    onEvent: (event) => { if (event.type === "claimed") current = { key: "synthetic-b", authorizedAt: 2 }; }
+  }), /connection changed or absent/);
+  assert.equal(runs, 0);
+  assert.equal(queued.status, "claimed");
 });

@@ -7,6 +7,7 @@ import { mkdtempSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ensureHostKey } from "../src/cli/host.mjs";
 import { loadSeal, readHostKey, writeHostKey } from "../src/cli/host-secrets.mjs";
 
 function fakeKeyring() {
@@ -78,4 +79,31 @@ test("secrets: the store dir is 0700", async () => {
   const { home, stateDir } = freshHome();
   await writeHostKey("host-secret-2", { home, keyring: fakeKeyring(), stateDir });
   assert.equal((await stat(join(home, ".v1design"))).mode & 0o777, 0o700);
+});
+
+test("host key follows the CLI connection through logout and account switching", async () => {
+  const { home, stateDir } = freshHome();
+  const keyring = fakeKeyring();
+  let connection = { apiUrl: "https://synthetic.invalid", key: "account-a", authorizedAt: 1 };
+  const mints = [];
+  const options = {
+    id: "synthetic-host", home, sealOptions: { keyring, stateDir },
+    readConnection: async () => connection,
+    mintKey: async (id, key, { baseUrl }) => { mints.push({ id, key, baseUrl }); return `host-${key}`; },
+  };
+  await writeHostKey("unbound-host-key", { home, keyring, stateDir });
+  assert.equal(await ensureHostKey(options), "host-account-a");
+  assert.equal(await ensureHostKey(options), "host-account-a");
+  assert.equal(mints.length, 1);
+  connection = null;
+  assert.equal(await ensureHostKey(options), "");
+  connection = { apiUrl: "https://synthetic.invalid", key: "account-b", authorizedAt: 2 };
+  assert.equal(await ensureHostKey({ ...options, mintKey: async () => null }), "");
+  assert.equal(await ensureHostKey(options), "host-account-b");
+  assert.equal(await ensureHostKey(options), "host-account-b");
+  assert.deepEqual(mints.map((m) => m.key), ["account-a", "account-b"]);
+  assert.equal(await ensureHostKey({ ...options, id: "other-host" }), "host-account-b");
+  assert.equal(mints.at(-1).id, "other-host");
+  const raw = await readFile(join(home, ".v1design", "host-key.json"), "utf8");
+  assert.doesNotMatch(raw, /account-a|account-b/);
 });

@@ -17,9 +17,9 @@ import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
 import { OpenClawKit, words } from "@byokit/openclaw";
-import { createHostClient, mintHostKey } from "./host-relay.ts";
+import { createHostClient, hostConnectionBinding, mintHostKey } from "./host-relay.ts";
 import { readHostKey, writeHostKey } from "./host-secrets.mjs";
-import { readCredentials } from "./auth.ts";
+import { readCredentials, DEFAULT_API_URL } from "./auth.ts";
 
 export const HOST_MEMBER = "me";
 export const HOST_AUTH_CHOICE = "openai-device-code";
@@ -135,25 +135,29 @@ export async function hostId(home = homedir()) {
 
 /**
  * The host key for this hostId, sealed via BYOKit (X3). Returns the stored
- * key when present; otherwise mints one from the engine's POST /host/keys
- * with the owner's user credential and seals it. Returns "" when there is
- * no credential or the engine refuses — the host keeps working TTY-only.
+ * key only when bound to the current CLI connection; otherwise mints one from
+ * POST /host/keys with the owner's user credential and seals it. Returns "" when there is
+ * no credential or the engine refuses — Studio relay requests are disabled.
  * The key is never logged.
  */
-export async function ensureHostKey({ id = null } = {}) {
-  const hostIdValue = id ?? (await hostId());
-  const existing = await readHostKey();
+export async function ensureHostKey({
+  id = null,
+  home = homedir(),
+  sealOptions = {},
+  readConnection = readCredentials,
+  mintKey = mintHostKey,
+} = {}) {
+  const connection = await readConnection();
+  if (!connection?.key) return "";
+  const hostIdValue = id ?? (await hostId(home));
+  const binding = hostConnectionBinding(connection, hostIdValue);
+  const baseUrl = (process.env.V1_DESIGN_API_URL || connection.apiUrl || DEFAULT_API_URL).replace(/\/$/, "");
+  const storage = { ...sealOptions, home, binding };
+  const existing = await readHostKey(storage);
   if (existing) return existing;
-  let userKey = "";
-  try {
-    userKey = (await readCredentials())?.key ?? "";
-  } catch {
-    userKey = "";
-  }
-  if (!userKey) return "";
-  const raw = await mintHostKey(hostIdValue, userKey);
+  const raw = await mintKey(hostIdValue, connection.key, { baseUrl });
   if (!raw) return "";
-  await writeHostKey(raw);
+  await writeHostKey(raw, storage);
   return raw;
 }
 
@@ -308,23 +312,34 @@ export function describeRunEnd(end) {
   return { error: `${kind}: ${message}` };
 }
 
-/** Claim one job, run it through the kit, submit the result or a typed failure.
+async function submitOutcome(client, job, outcome) {
+  const body = outcome.result === undefined ? { error: outcome.error } : { result: outcome.result };
+  if (!(await client.submit(job.id, body))) {
+    throw Object.assign(new Error(`Host result acknowledgment failed for job ${job.id}`), {
+      jobId: job.id,
+      outcome,
+    });
+  }
+  return outcome;
+}
+
+/** Run an already-claimed job through the kit, submit the result or a typed failure.
  * Submits the X1 result shape {text, usage}; resting failures carry the
- * `resting_until:<ms>` marker. */
+ * `resting_until:<ms>` marker. A failed acknowledgment throws with the outcome;
+ * it must not be reported as settled or successfully drained. */
 export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
   const built = buildRunSpec(job, lane);
   if (!built) {
     const error = "invalid-input: job carries no message";
-    await client.submit(job.id, { error });
-    return { error };
+    return submitOutcome(client, job, { error });
   }
+  await client.assertCurrentConnection?.();
   let end;
   try {
     end = await kit.run(built.spec);
   } catch (e) {
     const error = `failed: ${e?.message || String(e)}`;
-    await client.submit(job.id, { error });
-    return { error };
+    return submitOutcome(client, job, { error });
   }
   if (end.ok) {
     const result = { text: end.text, ...(end.usage === undefined ? {} : { usage: end.usage }) };
@@ -333,16 +348,13 @@ export async function runJobAndSubmit({ kit, client, job, lane = "chatgpt" }) {
         JSON.parse(result.text);
       } catch {
         const error = "invalid-result: model did not return JSON";
-        await client.submit(job.id, { error });
-        return { error };
+        return submitOutcome(client, job, { error });
       }
     }
-    await client.submit(job.id, { result });
-    return { result };
+    return submitOutcome(client, job, { result });
   }
   const { error, restUntil } = describeRunEnd(end);
-  await client.submit(job.id, { error });
-  return { error, restUntil };
+  return submitOutcome(client, job, { error, restUntil });
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -352,7 +364,8 @@ export const createLoopControl = () => ({ draining: false, restUntil: 0 });
  * The job loop: heartbeat presence + the current SignInView, poll, claim one
  * job, run it, submit. While backing off (restUntil) the host still
  * heartbeats but claims nothing. SIGINT drains: the loop stops polling and
- * returns only after the in-flight job is submitted.
+ * returns only after the in-flight outcome is acknowledged; acknowledgment
+ * failure throws instead. Connection changes block relay calls and new kit runs.
  */
 export async function serveJobs({
   kit,
@@ -513,17 +526,16 @@ export async function signInIfNeeded({ kit, client, ask = askYesNo, lane = "chat
   return "signed-in";
 }
 
-export async function hostRun(client = null, lane = "chatgpt") {
+export async function hostRun(lane = "chatgpt") {
   const cfg = laneConfig(lane);
   checkNodeVersion();
   const stateDir = hostStateDir();
   guardSocketPath(stateDir);
   await ensureSecureDir(join(homedir(), ".v1design"));
   const id = await hostId();
-  const hostKey = await ensureHostKey({ id }); // sealed via BYOKit; "" until the engine provisions one
-  client ??= createHostClient({ hostKey, hostId: id });
-  client.setHostKey(hostKey);
-  client.setHostId(id);
+  const connection = await readCredentials();
+  const hostKey = await ensureHostKey({ id, readConnection: async () => connection });
+  const client = createHostClient({ hostKey, hostId: id, connection });
   const kit = new OpenClawKit(buildKitOptions({ stateDir, engineDir: hostRoot() }));
   const ctl = createLoopControl();
   const onSigint = () => {
@@ -580,7 +592,7 @@ export async function hostFakeCheck(lane = "chatgpt") {
       return { ok: true, text: fixture.result.text, usage: fixture.result.usage };
     },
   };
-  const client = { submit: async (id, body) => void submitted.push([id, body]) };
+  const client = { submit: async (id, body) => { submitted.push([id, body]); return true; } };
   const job = { id: "fake-1", input: fixture.job };
   await runJobAndSubmit({ kit, client, job, lane });
   if (seen.length !== 1) fail("kit.run was not called exactly once");
@@ -635,5 +647,5 @@ Keep the computer online. Ctrl+C finishes the current job before exiting.`);
     return;
   }
   if (sub) throw new Error(`unknown host subcommand: ${sub} (see: v1design host help)`);
-  return hostRun(null, lane);
+  return hostRun(lane);
 }

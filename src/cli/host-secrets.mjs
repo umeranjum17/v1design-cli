@@ -49,12 +49,12 @@ export async function loadSeal(o = {}) {
   return { seal, via: seal.mode };
 }
 
-function encodeEnvelope(seal, key) {
-  return Buffer.from(seal.encryptString(JSON.stringify({ key }))).toString("base64");
+function encodeEnvelope(seal, key, binding) {
+  return Buffer.from(seal.encryptString(JSON.stringify({ key, binding }))).toString("base64");
 }
 
 function decodeEnvelope(seal, encoded) {
-  return JSON.parse(seal.decryptString(Buffer.from(encoded, "base64"))).key;
+  return JSON.parse(seal.decryptString(Buffer.from(encoded, "base64")));
 }
 
 export async function writeHostKey(key, o = {}) {
@@ -62,7 +62,7 @@ export async function writeHostKey(key, o = {}) {
   const { seal, via } = await loadSeal({ ...o, home });
   const path = hostKeyFile(home);
   await ensureSecureDir(dirname(path));
-  await writeFile(path, JSON.stringify({ v: 1, via, sealed: encodeEnvelope(seal, key) }) + "\n", {
+  await writeFile(path, JSON.stringify({ v: 1, via, sealed: encodeEnvelope(seal, key, o.binding) }) + "\n", {
     mode: 0o600,
   });
   await chmod(path, 0o600);
@@ -84,9 +84,11 @@ export async function readHostKey(o = {}) {
       home,
       mode: raw.via === "host-key-file" ? "host-key" : raw.via === "keyring" ? "os-keyring" : undefined,
     });
-    return decodeEnvelope(seal, raw.sealed);
+    const envelope = decodeEnvelope(seal, raw.sealed);
+    if (o.binding !== undefined && envelope.binding !== o.binding) return "";
+    return envelope.key;
   }
-  if (raw && typeof raw.key === "string") {
+  if (o.binding === undefined && raw && typeof raw.key === "string") {
     // Legacy plaintext (never shipped): seal it in place, then return it.
     await writeHostKey(raw.key, { ...o, home });
     return raw.key;
