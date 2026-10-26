@@ -143,3 +143,5 @@ tests, then `npm publish --access public --provenance`. Configure ONE auth metho
 
 Then publish by creating a release: `gh release create vX.Y.Z` (or re-run the
 workflow). Provenance is attached automatically via the `id-token: write` permission.
+
+[@umership](https://x.com/umership)
